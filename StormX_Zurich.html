@@ -1,0 +1,857 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>StormX – Climate-Adaptive IDFs (Zurich demo)</title>
+
+  <!-- Leaflet + Leaflet.Draw CSS -->
+  <link rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossorigin=""/>
+  <link rel="stylesheet"
+        href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css"
+        crossorigin=""/>
+
+  <style>
+    html, body { height: 100%; margin: 0; }
+    .layout{
+      height: 100%;
+      display: grid;
+      grid-template-columns: 520px 1fr;
+      background:#0f1115;
+      color:#e8e8e8;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", sans-serif;
+    }
+    .sidebar{ padding:16px; border-right:1px solid #2a2f3a; overflow:auto; }
+    .title{ margin:0 0 10px 0; font-size:18px; font-weight:900; }
+    .sub{ margin:0 0 14px 0; font-size:12px; opacity:.86; line-height:1.45; }
+    .grid{ display:grid; gap:10px; }
+    .row2{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    label{ display:grid; gap:6px; font-size:13px; }
+    select, button{
+      width:100%; padding:10px; border-radius:10px;
+      border:1px solid #2a2f3a; background:#151a22; color:#e8e8e8;
+      font-size:14px; outline:none;
+    }
+    button{ cursor:pointer; font-weight:900; }
+    button:disabled{ opacity:.5; cursor:not-allowed; }
+    .status{ font-size:12px; opacity:.92; line-height:1.45; }
+    .card{
+      margin-top:10px; padding:12px;
+      border:1px solid #2a2f3a; border-radius:12px; background:#12161e;
+    }
+    .card h3{ margin:0 0 8px 0; font-size:13px; font-weight:900; }
+    .tiny{ font-size:11px; opacity:.76; line-height:1.45; }
+    .kv{ font-size:13px; line-height:1.55; }
+    .hr{ margin:16px 0; border:0; height:1px; background:#2a2f3a; opacity:.7; }
+    #map{ height:100%; width:100%; }
+    .toggleRow{ display:flex; gap:10px; align-items:center; font-size:12px; opacity:.92; margin-top:6px; flex-wrap: wrap; }
+    .toggleRow input{ transform: translateY(1px); }
+
+    table{ width:100%; border-collapse:collapse; font-size:12px; margin-top:10px; }
+    th, td{ border:1px solid #2a2f3a; padding:6px 8px; text-align:right; vertical-align: top; }
+    th{ background:#151a22; font-weight:900; }
+    td:first-child, th:first-child{ text-align:left; white-space: nowrap; }
+    .cellMed{ font-weight:800; display:block; }
+    .cellBand{ font-size:11px; opacity:.72; display:block; margin-top:2px; }
+
+    canvas{ max-width:100%; background:#0f1115; border-radius:10px; }
+
+    .pill{
+      display:inline-block; padding:2px 8px; border:1px solid #2a2f3a;
+      border-radius:999px; background:#151a22; font-size:11px; opacity:.9; margin-left:6px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="layout">
+    <div class="sidebar">
+      <h1 class="title">
+        StormX (Zurich demo)
+        <span class="pill">Interactive Demo</span>
+      </h1>
+
+      <p class="sub">
+        <strong>StormX</strong> delivers climate-conditioned
+        <b>Intensity–Duration–Frequency (IDF)</b> curves for both current and future warming scenarios
+        at <b>station</b> and <b>area</b> scales.
+        In addition, it provides <b>long-term, high-resolution gridded rainfall datasets</b>
+        derived from observations and future projections.
+        The service enables engineers, insurers, and planners to directly apply
+        climate-adaptive design storms in practice, supporting robust flood-risk
+        assessment and climate-resilient infrastructure planning.
+      </p>
+
+    <div class="grid">
+      <div class="row2">
+        <label>
+          Spatial scale
+          <select id="scaleMode">
+            <option value="point" selected>Point (station / click)</option>
+            <option value="area">Area (polygon / draw)</option>
+          </select>
+        </label>
+
+        <label>
+          Output variable
+          <select id="metric">
+            <option value="intensity" selected>Rainfall intensity (mm/h)</option>
+            <option value="depth">Rainfall depth (mm)</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="row2">
+        <label>
+          Climate scenario
+          <select id="scenario">
+            <option value="current" selected>Current climate</option>
+            <option value="plus2">Warming +2°C</option>
+          </select>
+        </label>
+
+        <label>
+          Analysis
+          <select id="analysisType">
+            <option value="curve" selected>IDF curve by return period (single duration)</option>
+            <option value="matrix">IDF table: durations × return periods</option>
+            <option value="change">Future change: Δ% (+2°C vs present) by return period (single duration)</option>
+            <option value="vpi_events">VIP download: storm event sets (uncertainty-conditioned IDF)</option>
+            <option value="vpi_ts">VIP download: rainfall time series (present & +2°C)</option>
+          </select>
+        </label>
+      </div>
+
+      <!-- Duration controls (for curve/change) -->
+      <div id="singleDurationControls" class="grid" style="margin-top:2px;">
+        <label>
+          Duration
+          <select id="durationSingle">
+            <option value="5">5 min</option>
+            <option value="10">10 min</option>
+            <option value="15">15 min</option>
+            <option value="30">30 min</option>
+            <option value="60" selected>60 min</option>
+            <option value="120">2 h</option>
+            <option value="360">6 h</option>
+            <option value="1440">24 h</option>
+          </select>
+        </label>
+      </div>
+
+      <!-- Return periods moved below duration -->
+      <div id="rpControls" class="grid" style="margin-top:2px;">
+        <label>
+          Return periods (years)
+          <select id="returnPeriods" multiple size="5">
+            <option value="2" selected>2</option>
+            <option value="5" selected>5</option>
+            <option value="10" selected>10</option>
+            <option value="20" selected>20</option>
+            <option value="50" selected>50</option>
+            <option value="100" selected>100</option>
+            <option value="300" selected>300</option>
+            <option value="500" selected>500</option>
+          </select>
+        </label>
+        <div class="tiny">Tip: Ctrl/Shift-click to select multiple return periods.</div>
+      </div>
+
+      <!-- Matrix needs multi durations -->
+      <div id="matrixControls" class="grid" style="display:none; margin-top:2px;">
+        <label>
+          Durations (multi-select)
+          <select id="durationMulti" multiple size="7">
+            <option value="5">5 min</option>
+            <option value="10">10 min</option>
+            <option value="15">15 min</option>
+            <option value="30" selected>30 min</option>
+            <option value="60" selected>60 min</option>
+            <option value="120">2 h</option>
+            <option value="360">6 h</option>
+            <option value="1440">24 h</option>
+          </select>
+        </label>
+        <div class="tiny">Tip: Ctrl/Shift-click to select multiple durations.</div>
+      </div>
+
+      <div class="toggleRow">
+        <input id="showStations" type="checkbox" checked />
+        <label for="showStations" style="display:inline; cursor:pointer;">Show Zurich / Swiss stations</label>
+
+        <span style="opacity:0.5;">|</span>
+
+        <input id="showTable" type="checkbox" checked />
+        <label for="showTable" style="display:inline; cursor:pointer;">Show table</label>
+
+        <span style="opacity:0.5;">|</span>
+
+        <input id="showGraph" type="checkbox" checked />
+        <label for="showGraph" style="display:inline; cursor:pointer;">Show graph</label>
+      </div>
+
+      <button id="computeBtn" disabled>Run</button>
+
+      <div id="status" class="status">
+        Point mode: click a point on the map (or a station). Area mode: draw a polygon.
+      </div>
+
+      <div id="summaryCard" class="card" style="display:none;">
+        <h3>Selection summary</h3>
+        <div class="kv" id="summaryText"></div>
+      </div>
+
+      <div id="tableCard" class="card" style="display:none;">
+        <h3 id="tableTitle">Results</h3>
+        <div class="tiny" id="tableSubtitle"></div>
+        <div id="tableWrap"></div>
+      </div>
+
+      <div id="graphCard" class="card" style="display:none;">
+        <h3 id="graphTitle">Chart</h3>
+        <div class="tiny" id="graphSubtitle"></div>
+        <div style="margin-top:10px;">
+          <canvas id="chart" height="250"></canvas>
+        </div>
+      </div>
+
+      <hr class="hr"/>
+      <div class="tiny">
+        Notes: stations are demo points. Replace with official MeteoSwiss station metadata when available.
+      </div>
+    </div>
+  </div>
+
+  <div id="map"></div>
+</div>
+
+<!-- Libraries -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin=""></script>
+<script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js" crossorigin=""></script>
+<script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js" crossorigin=""></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin=""></script>
+
+<script>
+  // ----------------------------
+  // Zurich config
+  // ----------------------------
+  const ZURICH_CENTER = [47.3769, 8.5417]; // Zurich city center
+  const ZURICH_ZOOM = 12;
+
+  // Zurich / Swiss demo stations (placeholders)
+  // Replace with official station metadata when you have a dataset URL.
+  const ZURICH_STATIONS = [
+    { name: "Zurich–Fluntern (demo)",   lat: 47.3847, lng: 8.5666 },
+    { name: "Zurich–Affoltern (demo)",  lat: 47.4180, lng: 8.5155 },
+    { name: "Zurich–Altstetten (demo)", lat: 47.3896, lng: 8.4850 },
+    { name: "Zurich–Wollishofen (demo)",lat: 47.3401, lng: 8.5315 },
+    { name: "Zurich–Oerlikon (demo)",   lat: 47.4080, lng: 8.5441 }
+  ];
+
+  const DURATIONS = [
+    { label: "5 min", minutes: 5 },
+    { label: "10 min", minutes: 10 },
+    { label: "15 min", minutes: 15 },
+    { label: "30 min", minutes: 30 },
+    { label: "60 min", minutes: 60 },
+    { label: "2 h", minutes: 120 },
+    { label: "6 h", minutes: 360 },
+    { label: "24 h", minutes: 1440 },
+  ];
+  function durationLabel(minutes){
+    const d = DURATIONS.find(x => x.minutes === minutes);
+    return d ? d.label : `${minutes} min`;
+  }
+
+  // ----------------------------
+  // Helpers
+  // ----------------------------
+  function depthToIntensityMmPerH(depthMm, durationMinutes){
+    return depthMm / (durationMinutes / 60);
+  }
+  function setStatus(msg){ document.getElementById("status").textContent = msg; }
+  function show(id, on){ document.getElementById(id).style.display = on ? "block" : "none"; }
+  function setComputeEnabled(on){ document.getElementById("computeBtn").disabled = !on; }
+  function fmt(n){ return (Math.round(n * 100) / 100).toFixed(2); }
+  function getSelectedNumbers(selectEl){
+    return Array.from(selectEl.selectedOptions).map(o => Number(o.value)).filter(n => Number.isFinite(n));
+  }
+
+  // ----------------------------
+  // Mock backends (placeholders; keep until you wire real data)
+  // Band represented by P2.5 and P97.5 (no “95%” text in UI).
+  // ----------------------------
+  async function queryCurveByReturnPeriod({ mode, pointLatLng, polygonGeoJSON, durationMinutes, scenario, returnPeriods }) {
+    const scenarioFactor = (scenario === "plus2") ? 1.18 : 1.0;
+
+    const spatialSeed = (() => {
+      if (mode === "point" && pointLatLng) {
+        return (Math.sin(pointLatLng.lat * 12.9898 + pointLatLng.lng * 78.233) + 1) / 2;
+      }
+      if (mode === "area" && polygonGeoJSON) {
+        const c = turf.centroid(polygonGeoJSON).geometry.coordinates; // [lng, lat]
+        return (Math.sin(c[1] * 12.9898 + c[0] * 78.233) + 1) / 2;
+      }
+      return 0.5;
+    })();
+
+    const durH = durationMinutes / 60;
+    const baseDepth = (22 * Math.pow(durH, 0.70) + 7) * (0.9 + (spatialSeed - 0.5) * 0.25);
+    const rpToFactor = (rp) => 1 + Math.log(rp) / 5.7;
+    const rpToBand = (rp) => 0.10 + Math.log(rp) / 50;
+
+    const series = returnPeriods.map(rp => {
+      const med = Math.max(1, baseDepth * rpToFactor(rp) * scenarioFactor);
+      const rel = rpToBand(rp);
+      return { rp, depth_mm_med: med, depth_mm_lo: med * (1 - rel), depth_mm_hi: med * (1 + rel) };
+    });
+
+    return { series };
+  }
+
+  async function queryMatrixDurRP_CI({ mode, pointLatLng, polygonGeoJSON, durationMinutesList, scenario, returnPeriods }) {
+    const scenarioFactor = (scenario === "plus2") ? 1.18 : 1.0;
+
+    const spatialSeed = (() => {
+      if (mode === "point" && pointLatLng) {
+        return (Math.sin(pointLatLng.lat * 12.9898 + pointLatLng.lng * 78.233) + 1) / 2;
+      }
+      if (mode === "area" && polygonGeoJSON) {
+        const c = turf.centroid(polygonGeoJSON).geometry.coordinates;
+        return (Math.sin(c[1] * 12.9898 + c[0] * 78.233) + 1) / 2;
+      }
+      return 0.5;
+    })();
+
+    const rpToFactor = (rp) => 1 + Math.log(rp) / 5.7;
+    const rpToBand = (rp) => 0.10 + Math.log(rp) / 50;
+
+    const matrix = durationMinutesList.map(minutes => {
+      const durH = minutes / 60;
+      const baseDepth = (22 * Math.pow(durH, 0.70) + 7) * (0.9 + (spatialSeed - 0.5) * 0.25);
+
+      const row = {};
+      for (const rp of returnPeriods) {
+        const med = Math.max(1, baseDepth * rpToFactor(rp) * scenarioFactor);
+        const rel = rpToBand(rp);
+        row[rp] = { med, lo: med * (1 - rel), hi: med * (1 + rel) };
+      }
+      return { minutes, row };
+    });
+
+    return { matrix };
+  }
+
+  async function queryChangeByReturnPeriod({ mode, pointLatLng, polygonGeoJSON, durationMinutes, metric, returnPeriods }) {
+    const cur = await queryCurveByReturnPeriod({ mode, pointLatLng, polygonGeoJSON, durationMinutes, scenario: "current", returnPeriods });
+    const fut = await queryCurveByReturnPeriod({ mode, pointLatLng, polygonGeoJSON, durationMinutes, scenario: "plus2", returnPeriods });
+
+    function conv(depth){ return (metric === "intensity") ? depthToIntensityMmPerH(depth, durationMinutes) : depth; }
+
+    const rows = returnPeriods.map((rp, i) => {
+      const c = cur.series[i];
+      const f = fut.series[i];
+
+      const c_med = conv(c.depth_mm_med), c_lo = conv(c.depth_mm_lo), c_hi = conv(c.depth_mm_hi);
+      const f_med = conv(f.depth_mm_med), f_lo = conv(f.depth_mm_lo), f_hi = conv(f.depth_mm_hi);
+
+      const med = (f_med - c_med) / c_med * 100;
+      const lo = (f_lo - c_hi) / c_hi * 100;
+      const hi = (f_hi - c_lo) / c_lo * 100;
+
+      return { rp, med, lo, hi };
+    });
+
+    return { rows };
+  }
+
+  // ----------------------------
+  // Downloads (VPI placeholders)
+  // ----------------------------
+  function downloadTextFile(filename, content, mime="text/csv;charset=utf-8") {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function buildSelectionTag({mode, pointLatLng, polygonGeoJSON}) {
+    if (mode === "point" && pointLatLng) return `point_${pointLatLng.lat.toFixed(4)}_${pointLatLng.lng.toFixed(4)}`;
+    if (mode === "area" && polygonGeoJSON) {
+      const c = turf.centroid(polygonGeoJSON).geometry.coordinates;
+      return `area_${c[1].toFixed(4)}_${c[0].toFixed(4)}`;
+    }
+    return "selection";
+  }
+
+  async function vpiDownloadTimeSeries({ mode, pointLatLng, polygonGeoJSON }) {
+    const tag = buildSelectionTag({mode, pointLatLng, polygonGeoJSON});
+    const header = "timestamp_iso,scenario,rain_mm_per_h\n";
+    const lines = [];
+    const start = new Date("2020-01-01T00:00:00Z").getTime();
+    for (let i=0; i<48; i++) {
+      const t = new Date(start + i*3600*1000).toISOString();
+      const base = 2 + 3*Math.random();
+      lines.push(`${t},present,${(base).toFixed(3)}`);
+      lines.push(`${t},plus2C,${(base*1.15).toFixed(3)}`);
+    }
+    downloadTextFile(`VPI_rainfall_timeseries_${tag}.csv`, header + lines.join("\n"));
+  }
+
+  async function vpiDownloadStormEventSet({ mode, pointLatLng, polygonGeoJSON }) {
+    const tag = buildSelectionTag({mode, pointLatLng, polygonGeoJSON});
+    const header = "event_id,scenario,ensemble_member,duration_min,return_period_yr,peak_intensity_mm_per_h\n";
+    const lines = [];
+    const rps = [2,5,10,20,50,100];
+    const durations = [5,10,30,60,120];
+    let id = 1;
+    for (const rp of rps) {
+      for (const d of durations) {
+        for (let m=1; m<=5; m++) {
+          const peak = (12 + Math.log(rp)*6) * (60/d) * (0.85 + 0.3*Math.random());
+          lines.push(`${id++},present,${m},${d},${rp},${peak.toFixed(3)}`);
+          lines.push(`${id++},plus2C,${m},${d},${rp},${(peak*1.12).toFixed(3)}`);
+        }
+      }
+    }
+    downloadTextFile(`VPI_storm_event_set_${tag}.csv`, header + lines.join("\n"));
+  }
+
+  // ----------------------------
+  // Map init
+  // ----------------------------
+  const map = L.map("map", { center: ZURICH_CENTER, zoom: ZURICH_ZOOM });
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap contributors"
+  }).addTo(map);
+
+  // Draw layer
+  const drawnItems = new L.FeatureGroup();
+  map.addLayer(drawnItems);
+
+  const drawControl = new L.Control.Draw({
+    position: "topleft",
+    draw: {
+      polygon: true,
+      polyline: false,
+      rectangle: false,
+      circle: false,
+      circlemarker: false,
+      marker: false
+    },
+    edit: { featureGroup: drawnItems, edit: true, remove: true }
+  });
+  map.addControl(drawControl);
+
+  // Station layer
+  const stationLayer = L.layerGroup().addTo(map);
+
+  let activePolygonLayer = null;
+  let activePointMarker = null;
+  let activePointLatLng = null;
+
+  // Chart
+  let chart = null;
+  function destroyChart(){ if(chart){ chart.destroy(); chart = null; } }
+
+  function getMode(){ return document.getElementById("scaleMode").value; }
+  function getScenario(){ return document.getElementById("scenario").value; }
+  function getMetric(){ return document.getElementById("metric").value; }
+  function getAnalysis(){ return document.getElementById("analysisType").value; }
+
+  function resetOutputs(){
+    destroyChart();
+    show("summaryCard", false);
+    show("tableCard", false);
+    show("graphCard", false);
+  }
+
+  function refreshUI(){
+    const analysis = getAnalysis();
+    const isMatrix = (analysis === "matrix");
+    const isVPI = (analysis === "vpi_ts" || analysis === "vpi_events");
+
+    show("matrixControls", isMatrix);
+    show("singleDurationControls", (!isMatrix && !isVPI));
+
+    const mode = getMode();
+    const ok = (mode === "point") ? Boolean(activePointLatLng) : Boolean(activePolygonLayer);
+    setComputeEnabled(ok);
+  }
+
+  // ----------------------------
+  // Render Zurich / Swiss demo stations
+  // ----------------------------
+  function renderZurichStations(showStations){
+    stationLayer.clearLayers();
+    if(!showStations) return;
+
+    for(const s of ZURICH_STATIONS){
+      const m = L.circleMarker([s.lat, s.lng], { radius: 5, weight: 2, fillOpacity: 0.7 });
+      m.bindTooltip(s.name);
+      m.on("click", () => {
+        document.getElementById("scaleMode").value = "point";
+        activePointLatLng = L.latLng(s.lat, s.lng);
+
+        if(!activePointMarker){
+          activePointMarker = L.marker(activePointLatLng).addTo(map);
+        } else {
+          activePointMarker.setLatLng(activePointLatLng);
+        }
+
+        setComputeEnabled(true);
+        setStatus(`Station selected: ${s.name}. Click Run.`);
+        resetOutputs();
+        refreshUI();
+      });
+      stationLayer.addLayer(m);
+    }
+  }
+
+  // ----------------------------
+  // Selection events
+  // ----------------------------
+  map.on("click", (e) => {
+    if(getMode() !== "point") return;
+
+    activePointLatLng = e.latlng;
+    if(!activePointMarker){
+      activePointMarker = L.marker(activePointLatLng).addTo(map);
+    } else {
+      activePointMarker.setLatLng(activePointLatLng);
+    }
+
+    setComputeEnabled(true);
+    setStatus(`Point selected at lat ${activePointLatLng.lat.toFixed(5)}, lon ${activePointLatLng.lng.toFixed(5)}. Click Run.`);
+    resetOutputs();
+  });
+
+  map.on(L.Draw.Event.CREATED, (e) => {
+    drawnItems.clearLayers();
+    activePolygonLayer = e.layer;
+    drawnItems.addLayer(activePolygonLayer);
+
+    if(getMode() === "area"){
+      setComputeEnabled(true);
+      setStatus("Polygon saved. Click Run.");
+    } else {
+      setStatus("Polygon drawn (ignored in Point mode). Switch to Area mode to use it.");
+    }
+    resetOutputs();
+  });
+
+  map.on(L.Draw.Event.EDITED, () => {
+    if(getMode() === "area" && activePolygonLayer){
+      setStatus("Polygon updated. Click Run again.");
+      resetOutputs();
+    }
+  });
+
+  map.on(L.Draw.Event.DELETED, () => {
+    activePolygonLayer = null;
+    if(getMode() === "area"){
+      setComputeEnabled(false);
+      setStatus("Polygon removed. Draw a new polygon.");
+      resetOutputs();
+    }
+  });
+
+  // ----------------------------
+  // Rendering helpers (tables/charts)
+  // ----------------------------
+  function renderCurveTable(rows, unit){
+    let html = `<table>
+      <thead><tr>
+        <th>Return period (yr)</th>
+        <th>Median (${unit})</th>
+        <th>P2.5 (${unit})</th>
+        <th>P97.5 (${unit})</th>
+      </tr></thead><tbody>`;
+    for(const r of rows){
+      html += `<tr><td>${r.rp}</td><td>${fmt(r.med)}</td><td>${fmt(r.lo)}</td><td>${fmt(r.hi)}</td></tr>`;
+    }
+    html += `</tbody></table>`;
+    document.getElementById("tableWrap").innerHTML = html;
+  }
+
+  function renderMatrixTable(matrixRows, unit, returnPeriods){
+    let html = `<table><thead><tr>
+      <th>Duration</th>
+      ${returnPeriods.map(rp => `<th>${rp}y (${unit})<div class="tiny">Med / Band</div></th>`).join("")}
+    </tr></thead><tbody>`;
+    for(const row of matrixRows){
+      html += `<tr><td>${row.label}</td>${
+        returnPeriods.map(rp => {
+          const c = row.values[rp];
+          return `<td><span class="cellMed">${fmt(c.med)}</span><span class="cellBand">${fmt(c.lo)} – ${fmt(c.hi)}</span></td>`;
+        }).join("")
+      }</tr>`;
+    }
+    html += `</tbody></table>`;
+    document.getElementById("tableWrap").innerHTML = html;
+  }
+
+  function renderChangeTable(rows){
+    let html = `<table><thead><tr>
+      <th>Return period (yr)</th><th>Δ% Median</th><th>Δ% P2.5</th><th>Δ% P97.5</th>
+    </tr></thead><tbody>`;
+    for(const r of rows){
+      html += `<tr><td>${r.rp}</td><td>${fmt(r.med)}</td><td>${fmt(r.lo)}</td><td>${fmt(r.hi)}</td></tr>`;
+    }
+    html += `</tbody></table>`;
+    document.getElementById("tableWrap").innerHTML = html;
+  }
+
+  function renderBandChart(rows, yLabel, titleLabel){
+    destroyChart();
+    const ctx = document.getElementById("chart");
+    chart = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: rows.map(r => `${r.rp}`),
+        datasets: [
+          { label: "P97.5", data: rows.map(r => r.hi), borderWidth: 1, pointRadius: 0, fill: "-1" },
+          { label: "P2.5",  data: rows.map(r => r.lo), borderWidth: 1, pointRadius: 0 },
+          { label: titleLabel, data: rows.map(r => r.med), borderWidth: 2, pointRadius: 3, tension: 0.25 }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: { title: { display: true, text: yLabel, color: "#cfd6e6" },
+               ticks: { color: "#cfd6e6" }, grid: { color: "rgba(255,255,255,0.06)" } },
+          x: { title: { display: true, text: "Return period (years)", color: "#cfd6e6" },
+               ticks: { color: "#cfd6e6" }, grid: { color: "rgba(255,255,255,0.06)" } }
+        },
+        plugins: { legend: { labels: { color: "#e8e8e8" } }, tooltip: { enabled: true } }
+      }
+    });
+  }
+
+  function renderMatrixMedianChart(matrixRows, yLabel, returnPeriods){
+    destroyChart();
+    const ctx = document.getElementById("chart");
+    chart = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: returnPeriods.map(rp => `${rp}`),
+        datasets: matrixRows.map(row => ({
+          label: `${row.label} (median)`,
+          data: returnPeriods.map(rp => row.values[rp].med),
+          borderWidth: 2,
+          pointRadius: 2,
+          tension: 0.25
+        }))
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: { title: { display: true, text: yLabel, color: "#cfd6e6" },
+               ticks: { color: "#cfd6e6" }, grid: { color: "rgba(255,255,255,0.06)" } },
+          x: { title: { display: true, text: "Return period (years)", color: "#cfd6e6" },
+               ticks: { color: "#cfd6e6" }, grid: { color: "rgba(255,255,255,0.06)" } }
+        },
+        plugins: { legend: { labels: { color: "#e8e8e8" } }, tooltip: { enabled: true } }
+      }
+    });
+  }
+
+  // ----------------------------
+  // Compute action
+  // ----------------------------
+  document.getElementById("computeBtn").addEventListener("click", async () => {
+    try{
+      const mode = getMode();
+      const scenario = getScenario();
+      const metric = getMetric();
+      const analysis = getAnalysis();
+
+      const wantTable = document.getElementById("showTable").checked;
+      const wantGraph = document.getElementById("showGraph").checked;
+
+      const returnPeriods = getSelectedNumbers(document.getElementById("returnPeriods")).sort((a,b)=>a-b);
+      if(returnPeriods.length === 0){
+        setStatus("Please select at least one return period.");
+        return;
+      }
+
+      if(mode === "point" && !activePointLatLng){
+        setStatus("Point mode: please click a point on the map (or a station) first.");
+        return;
+      }
+      if(mode === "area" && !activePolygonLayer){
+        setStatus("Area mode: please draw a polygon first.");
+        return;
+      }
+
+      const polygonGeoJSON = (mode === "area") ? activePolygonLayer.toGeoJSON() : null;
+      const unit = (metric === "intensity") ? "mm/h" : "mm";
+
+      setStatus("Running…");
+
+      // Summary
+      let summaryHtml = "";
+      if(mode === "point"){
+        summaryHtml += `<div><b>Scale:</b> Point</div>`;
+        summaryHtml += `<div><b>Location:</b> lat ${activePointLatLng.lat.toFixed(5)}, lon ${activePointLatLng.lng.toFixed(5)}</div>`;
+      } else {
+        const areaKm2 = turf.area(polygonGeoJSON) / 1e6;
+        summaryHtml += `<div><b>Scale:</b> Area</div>`;
+        summaryHtml += `<div><b>Polygon area:</b> ${areaKm2.toFixed(2)} km²</div>`;
+      }
+      summaryHtml += `<div><b>Variable:</b> ${metric === "intensity" ? "Intensity (mm/h)" : "Depth (mm)"}</div>`;
+      summaryHtml += `<div><b>Return periods:</b> ${returnPeriods.join(", ")} years</div>`;
+      document.getElementById("summaryText").innerHTML = summaryHtml;
+      show("summaryCard", true);
+
+      show("tableCard", false);
+      show("graphCard", false);
+      destroyChart();
+
+      // VPI downloads
+      if(analysis === "vpi_ts"){
+        await vpiDownloadTimeSeries({ mode, pointLatLng: activePointLatLng, polygonGeoJSON });
+        setStatus("Download started: rainfall time series (present & +2°C).");
+        return;
+      }
+      if(analysis === "vpi_events"){
+        await vpiDownloadStormEventSet({ mode, pointLatLng: activePointLatLng, polygonGeoJSON });
+        setStatus("Download started: storm event set.");
+        return;
+      }
+
+      // Curve / Change share single duration
+      const durationMinutes = Number(document.getElementById("durationSingle").value);
+
+      if(analysis === "curve"){
+        const resp = await queryCurveByReturnPeriod({
+          mode, pointLatLng: activePointLatLng, polygonGeoJSON,
+          durationMinutes, scenario, returnPeriods
+        });
+
+        const rows = resp.series.map(s => {
+          const med = (metric === "intensity") ? depthToIntensityMmPerH(s.depth_mm_med, durationMinutes) : s.depth_mm_med;
+          const lo  = (metric === "intensity") ? depthToIntensityMmPerH(s.depth_mm_lo,  durationMinutes) : s.depth_mm_lo;
+          const hi  = (metric === "intensity") ? depthToIntensityMmPerH(s.depth_mm_hi,  durationMinutes) : s.depth_mm_hi;
+          return { rp: s.rp, med, lo, hi };
+        });
+
+        show("tableCard", wantTable);
+        document.getElementById("tableTitle").textContent = "IDF curve (table)";
+        document.getElementById("tableSubtitle").textContent =
+          `${durationLabel(durationMinutes)} • ${scenario === "plus2" ? "Warming +2°C" : "Present-day climate"} • ${unit}`;
+        if(wantTable) renderCurveTable(rows, unit);
+
+        show("graphCard", wantGraph);
+        document.getElementById("graphTitle").textContent = "IDF curve (chart)";
+        document.getElementById("graphSubtitle").textContent =
+          `${durationLabel(durationMinutes)} • ${scenario === "plus2" ? "Warming +2°C" : "Present-day climate"} • Band shown as P2.5–P97.5`;
+        if(wantGraph) renderBandChart(rows, unit, `Median (${unit})`);
+
+      } else if(analysis === "matrix"){
+        const chosenDur = getSelectedNumbers(document.getElementById("durationMulti")).sort((a,b)=>a-b);
+        if(chosenDur.length === 0){
+          setStatus("Matrix analysis: please select at least one duration.");
+          return;
+        }
+
+        const resp = await queryMatrixDurRP_CI({
+          mode, pointLatLng: activePointLatLng, polygonGeoJSON,
+          durationMinutesList: chosenDur, scenario, returnPeriods
+        });
+
+        const matrixRows = resp.matrix.map(m => {
+          const values = {};
+          for(const rp of returnPeriods){
+            const c = m.row[rp];
+            if(metric === "intensity"){
+              values[rp] = {
+                med: depthToIntensityMmPerH(c.med, m.minutes),
+                lo:  depthToIntensityMmPerH(c.lo,  m.minutes),
+                hi:  depthToIntensityMmPerH(c.hi,  m.minutes)
+              };
+            } else {
+              values[rp] = { med: c.med, lo: c.lo, hi: c.hi };
+            }
+          }
+          return { minutes: m.minutes, label: durationLabel(m.minutes), values };
+        });
+
+        show("tableCard", wantTable);
+        document.getElementById("tableTitle").textContent = "IDF table (durations × return periods)";
+        document.getElementById("tableSubtitle").textContent =
+          `${scenario === "plus2" ? "Warming +2°C" : "Present-day climate"} • Each cell shows median + P2.5–P97.5 • ${unit}`;
+        if(wantTable) renderMatrixTable(matrixRows, unit, returnPeriods);
+
+        show("graphCard", wantGraph);
+        document.getElementById("graphTitle").textContent = "IDF curves (median only)";
+        document.getElementById("graphSubtitle").textContent =
+          `One curve per duration (median). Full band values are available in the table.`;
+        if(wantGraph) renderMatrixMedianChart(matrixRows, unit, returnPeriods);
+
+      } else if(analysis === "change"){
+        const resp = await queryChangeByReturnPeriod({
+          mode, pointLatLng: activePointLatLng, polygonGeoJSON,
+          durationMinutes, metric, returnPeriods
+        });
+
+        show("tableCard", wantTable);
+        document.getElementById("tableTitle").textContent = "Future change (Δ%): +2°C vs present";
+        document.getElementById("tableSubtitle").textContent =
+          `${durationLabel(durationMinutes)} • Band shown as P2.5–P97.5`;
+        if(wantTable) renderChangeTable(resp.rows);
+
+        show("graphCard", wantGraph);
+        document.getElementById("graphTitle").textContent = "Future change curve (Δ% by return period)";
+        document.getElementById("graphSubtitle").textContent =
+          `${durationLabel(durationMinutes)} • Shaded band (P2.5–P97.5)`;
+        if(wantGraph) renderBandChart(resp.rows, "Future change (%)", "Median Δ%");
+      }
+
+      setStatus("Done.");
+    } catch(err){
+      setStatus("Error: " + (err && err.message ? err.message : String(err)));
+    }
+  });
+
+  // ----------------------------
+  // UI events
+  // ----------------------------
+  document.getElementById("analysisType").addEventListener("change", () => { resetOutputs(); refreshUI(); });
+
+  document.getElementById("scaleMode").addEventListener("change", () => {
+    resetOutputs(); refreshUI();
+    setStatus(getMode() === "point"
+      ? "Point mode: click a station or click on the map."
+      : "Area mode: draw a polygon (left toolbar).");
+  });
+
+  document.getElementById("showStations").addEventListener("change", (e) => {
+    renderZurichStations(e.target.checked);
+  });
+
+  ["metric","scenario","durationSingle","durationMulti","returnPeriods","showTable","showGraph"].forEach(id => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.addEventListener("change", () => { resetOutputs(); refreshUI(); });
+  });
+
+  // Init
+  refreshUI();
+  renderZurichStations(true);
+</script>
+</body>
+</html>
