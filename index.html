@@ -116,7 +116,8 @@
         <label>
           Analysis
           <select id="analysisType">
-            <option value="curve" selected>IDF curve by return period (single duration)</option>
+            <option value="meteoswiss_sma">IDF curve by MeteoSwiss (hourly)</option>
+            <option value="curve" selected>IDF curve by StormX(single duration)</option>
             <option value="matrix">IDF table: durations × return periods</option>
             <option value="change">Future change: Δ% (+2°C vs present) by return period (single duration)</option>
             <option value="vpi_events">VIP download: storm event sets (uncertainty-conditioned IDF)</option>
@@ -151,6 +152,7 @@
             <option value="5" selected>5</option>
             <option value="10" selected>10</option>
             <option value="20" selected>20</option>
+            <option value="30">30</option>
             <option value="50" selected>50</option>
             <option value="100" selected>100</option>
             <option value="300" selected>300</option>
@@ -270,6 +272,20 @@
     { code: "ZWK", name: "Zwillikon", lat: 47.290092, lng: 8.431958, altitude_m: 461, canton: "ZH", network: "Automatic precipitation", source: "MeteoSwiss Open Data" }
   ];
 
+  // Official MeteoSwiss benchmark for Zurich / Fluntern (SMA).
+  // Product: climate-extremes-precipitation-subdaily, 1-hour-sum, all seasons, 1982-2022.
+  // Source ZIP: climate-extremes-precipitation-subdaily_1-hour-sum_DJF-MAM-JJA-SON_SMA_en.zip
+  // Table: xss-prec_1-hour-sum_DJF-MAM-JJA-SON_1981-lastyear_bayes-insitu_SMA_qual1_tab-rprl_E.csv
+  const METEOSWISS_SMA_HOURLY_IDF = [
+    { rp: 2, med: 18.6, lo: 16.5, hi: 20.9 },
+    { rp: 5, med: 27.0, lo: 23.4, hi: 32.1 },
+    { rp: 10, med: 33.7, lo: 28.4, hi: 42.7 },
+    { rp: 20, med: 41.2, lo: 33.7, hi: 55.4 },
+    { rp: 30, med: 46.0, lo: 36.7, hi: 64.1 },
+    { rp: 50, med: 53.0, lo: 40.9, hi: 78.3 },
+    { rp: 100, med: 63.6, lo: 46.5, hi: 100.7 }
+  ];
+
   const DURATIONS = [
     { label: "5 min", minutes: 5 },
     { label: "10 min", minutes: 10 },
@@ -385,6 +401,13 @@
     });
 
     return { rows };
+  }
+
+  async function queryMeteoSwissSmaHourly({ returnPeriods }) {
+    const wanted = new Set(returnPeriods);
+    return {
+      rows: METEOSWISS_SMA_HOURLY_IDF.filter(r => wanted.has(r.rp))
+    };
   }
 
   // ----------------------------
@@ -763,7 +786,35 @@
       // Curve / Change share single duration
       const durationMinutes = Number(document.getElementById("durationSingle").value);
 
-      if(analysis === "curve"){
+      if(analysis === "meteoswiss_sma"){
+        if(mode !== "point" || !activeStation || activeStation.code !== "SMA"){
+          setStatus("MeteoSwiss benchmark: please select station SMA - Zürich / Fluntern.");
+          return;
+        }
+        if(durationMinutes !== 60){
+          setStatus("MeteoSwiss benchmark: please choose Duration = 60 min.");
+          return;
+        }
+
+        const resp = await queryMeteoSwissSmaHourly({ returnPeriods });
+        if(resp.rows.length === 0){
+          setStatus("MeteoSwiss benchmark: select one of 2, 5, 10, 20, 30, 50, or 100 years.");
+          return;
+        }
+
+        show("tableCard", wantTable);
+        document.getElementById("tableTitle").textContent = "MeteoSwiss IDF benchmark (SMA)";
+        document.getElementById("tableSubtitle").textContent =
+          "Official MeteoSwiss extreme-value analysis • Zürich / Fluntern • 1-hour precipitation • 1982-2022 • good reliability";
+        if(wantTable) renderCurveTable(resp.rows, "mm/h");
+
+        show("graphCard", wantGraph);
+        document.getElementById("graphTitle").textContent = "MeteoSwiss IDF curve (hourly)";
+        document.getElementById("graphSubtitle").textContent =
+          "Return level with lower/upper confidence bounds • Source: MeteoSwiss climate-extremes-precipitation-subdaily";
+        if(wantGraph) renderBandChart(resp.rows, "Rainfall intensity (mm/h)", "MeteoSwiss median (mm/h)");
+
+      } else if(analysis === "curve"){
         const resp = await queryCurveByReturnPeriod({
           mode, pointLatLng: activePointLatLng, polygonGeoJSON,
           durationMinutes, scenario, returnPeriods
