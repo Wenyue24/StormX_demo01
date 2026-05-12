@@ -75,14 +75,19 @@
       </h1>
 
       <p class="sub">
-        <strong>StormX</strong> delivers climate-conditioned
-        <b>Intensity–Duration–Frequency (IDF)</b> curves for both current and future warming scenarios
-        at <b>station</b> and <b>area</b> scales.
-        In addition, it provides <b>long-term, high-resolution gridded rainfall datasets</b>
-        derived from observations and future projections.
-        The service enables engineers, insurers, and planners to directly apply
-        climate-adaptive design storms in practice, supporting robust flood-risk
-        assessment and climate-resilient infrastructure planning.
+        <strong>StormX</strong> transforms observed rainfall into climate-adaptive
+        <b>2D rainfall fields</b>, <b>Intensity–Duration–Frequency (IDF)</b> curves,
+        and <b>design-storm ensembles</b> for robust flood-risk assessment and
+        resilient infrastructure planning.
+        <br><br>
+        Built from station, radar, and satellite observations, StormX provides
+        current and future rainfall products for stations, points, catchments,
+        and user-defined areas. Engineers, insurers, municipalities, and planners
+        can directly use these outputs in flood modelling, drainage design,
+        infrastructure planning, and climate adaptation applications.
+        <br><br>
+        Contact for pilot access or collaboration:
+        <a href="mailto:wenyuezou9@gmail.com" style="color:#cfd6e6;">wenyuezou9@gmail.com</a>
       </p>
 
     <div class="grid">
@@ -116,8 +121,8 @@
         <label>
           Analysis
           <select id="analysisType">
-            <option value="meteoswiss_sma">IDF curve by MeteoSwiss (SMA,hourly)</option>
-            <option value="curve" selected>IDF curve by StormX(single duration)</option>
+            <option value="curve" selected>IDF curve by return period (single duration)</option>
+            <option value="meteoswiss_sma">IDF curve by MeteoSwiss (SMA, hourly)</option>
             <option value="matrix">IDF table: durations × return periods</option>
             <option value="change">Future change: Δ% (+2°C vs present) by return period (single duration)</option>
             <option value="vpi_events">VIP download: storm event sets (uncertainty-conditioned IDF)</option>
@@ -510,6 +515,21 @@
   function getScenario(){ return document.getElementById("scenario").value; }
   function getMetric(){ return document.getElementById("metric").value; }
   function getAnalysis(){ return document.getElementById("analysisType").value; }
+  function getStationByCode(code){ return METEOSWISS_ZH_STATIONS.find(s => s.code === code); }
+
+  function inferSmaFromSelectedPoint(){
+    if(!activePointLatLng) return false;
+    const sma = getStationByCode("SMA");
+    if(!sma) return false;
+    const distanceMeters = activePointLatLng.distanceTo(L.latLng(sma.lat, sma.lng));
+    if(distanceMeters <= 250){
+      activePointLatLng = L.latLng(sma.lat, sma.lng);
+      activeStation = sma;
+      if(activePointMarker) activePointMarker.setLatLng(activePointLatLng);
+      return true;
+    }
+    return false;
+  }
 
   function resetOutputs(){
     destroyChart();
@@ -539,10 +559,11 @@
     if(!showStations) return;
 
     for(const s of METEOSWISS_ZH_STATIONS){
-      const m = L.circleMarker([s.lat, s.lng], { radius: 5, weight: 2, fillOpacity: 0.7 });
+      const m = L.circleMarker([s.lat, s.lng], { radius: 5, weight: 2, fillOpacity: 0.7, bubblingMouseEvents: false });
       const stationLabel = `${s.code} - ${s.name} (${s.network}, ${s.altitude_m} m)`;
       m.bindTooltip(stationLabel);
-      m.on("click", () => {
+      m.on("click", (e) => {
+        if(e.originalEvent) L.DomEvent.stop(e.originalEvent);
         document.getElementById("scaleMode").value = "point";
         activePointLatLng = L.latLng(s.lat, s.lng);
         activeStation = s;
@@ -740,6 +761,19 @@
         setStatus("Area mode: please draw a polygon first.");
         return;
       }
+      if(analysis === "meteoswiss_sma"){
+        if(mode !== "point"){
+          setStatus("MeteoSwiss benchmark: please use Point mode and select SMA - Zürich / Fluntern.");
+          return;
+        }
+        if(!activeStation || activeStation.code !== "SMA"){
+          inferSmaFromSelectedPoint();
+        }
+        if(!activeStation || activeStation.code !== "SMA"){
+          setStatus("MeteoSwiss benchmark: please select station SMA - Zürich / Fluntern.");
+          return;
+        }
+      }
 
       const polygonGeoJSON = (mode === "area") ? activePolygonLayer.toGeoJSON() : null;
       const unit = (metric === "intensity") ? "mm/h" : "mm";
@@ -787,10 +821,6 @@
       const durationMinutes = Number(document.getElementById("durationSingle").value);
 
       if(analysis === "meteoswiss_sma"){
-        if(mode !== "point" || !activeStation || activeStation.code !== "SMA"){
-          setStatus("MeteoSwiss benchmark: please select station SMA - Zürich / Fluntern.");
-          return;
-        }
         if(durationMinutes !== 60){
           setStatus("MeteoSwiss benchmark: please choose Duration = 60 min.");
           return;
