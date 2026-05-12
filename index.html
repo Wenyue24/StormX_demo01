@@ -15,16 +15,42 @@
         crossorigin=""/>
 
   <style>
+    :root{ --sidebar-width: 520px; }
     html, body { height: 100%; margin: 0; }
     .layout{
       height: 100%;
       display: grid;
-      grid-template-columns: 520px 1fr;
+      grid-template-columns: minmax(360px, var(--sidebar-width)) 8px minmax(0, 1fr);
       background:#0f1115;
       color:#e8e8e8;
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", sans-serif;
     }
-    .sidebar{ padding:16px; border-right:1px solid #2a2f3a; overflow:auto; }
+    .sidebar{ padding:16px; border-right:1px solid #2a2f3a; overflow:auto; min-width:0; }
+    .sidebar-resizer{
+      width:8px;
+      cursor:col-resize;
+      background:#0f1115;
+      border-left:1px solid #2a2f3a;
+      border-right:1px solid #2a2f3a;
+      position:relative;
+      z-index:500;
+      touch-action:none;
+    }
+    .sidebar-resizer::after{
+      content:"";
+      position:absolute;
+      top:32px;
+      bottom:32px;
+      left:3px;
+      width:2px;
+      border-radius:999px;
+      background:#8b94a7;
+      opacity:.55;
+    }
+    .sidebar-resizer:hover::after,
+    .layout.resizing .sidebar-resizer::after{ opacity:.95; background:#cfd6e6; }
+    .layout.resizing,
+    .layout.resizing *{ cursor:col-resize !important; user-select:none; }
     .title{ margin:0 0 10px 0; font-size:18px; font-weight:900; }
     .sub{ margin:0 0 14px 0; font-size:12px; opacity:.86; line-height:1.45; }
     .grid{ display:grid; gap:10px; }
@@ -39,6 +65,21 @@
     button:disabled{ opacity:.5; cursor:not-allowed; }
     select:disabled{ opacity:.65; cursor:not-allowed; }
     .status{ font-size:12px; opacity:.92; line-height:1.45; }
+    .badge{
+      display:inline-block; padding:2px 8px; border-radius:999px;
+      font-size:11px; font-weight:900; margin:2px 6px 2px 0;
+      border:1px solid #2a2f3a;
+    }
+    .badgeSynthetic{ background:#241b10; border-color:#7a5622; color:#ffd28a; }
+    .badgeOfficial{ background:#102217; border-color:#2f7a4b; color:#9ee6b5; }
+    .notice{
+      margin-top:10px; padding:10px; border-radius:10px;
+      border:1px solid #3a4252; background:#151a22;
+      font-size:12px; line-height:1.45;
+    }
+    .notice strong{ color:#ffffff; }
+    .validationGood{ color:#9ee6b5; font-weight:900; }
+    .validationWarn{ color:#ffd28a; font-weight:900; }
     .card{
       margin-top:10px; padding:12px;
       border:1px solid #2a2f3a; border-radius:12px; background:#12161e;
@@ -47,7 +88,7 @@
     .tiny{ font-size:11px; opacity:.76; line-height:1.45; }
     .kv{ font-size:13px; line-height:1.55; }
     .hr{ margin:16px 0; border:0; height:1px; background:#2a2f3a; opacity:.7; }
-    #map{ height:100%; width:100%; }
+    #map{ height:100%; width:100%; min-width:0; }
     .toggleRow{ display:flex; gap:10px; align-items:center; font-size:12px; opacity:.92; margin-top:6px; flex-wrap: wrap; }
     .toggleRow input{ transform: translateY(1px); }
 
@@ -63,6 +104,13 @@
     .pill{
       display:inline-block; padding:2px 8px; border:1px solid #2a2f3a;
       border-radius:999px; background:#151a22; font-size:11px; opacity:.9; margin-left:6px;
+    }
+    @media (max-width: 850px){
+      :root{ --sidebar-width: 100%; }
+      .layout{ grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+      .sidebar{ max-height:45vh; border-right:0; border-bottom:1px solid #2a2f3a; }
+      .sidebar-resizer{ display:none; }
+      #map{ min-height:55vh; }
     }
   </style>
 </head>
@@ -228,11 +276,13 @@
 
       <hr class="hr"/>
       <div class="tiny">
-        Notes: station locations are from MeteoSwiss Open Data metadata. No meteorological records are loaded.
+        Notes: station locations are from MeteoSwiss Open Data metadata. No meteorological records are loaded for the station layer.
+        StormX demo IDFs and prototype downloads are synthetic unless explicitly labelled as a MeteoSwiss benchmark.
       </div>
     </div>
   </div>
 
+  <div id="sidebarResizer" class="sidebar-resizer" role="separator" aria-label="Resize control panel" title="Drag to resize the control panel"></div>
   <div id="map"></div>
 </div>
 
@@ -543,6 +593,62 @@
   let chart = null;
   function destroyChart(){ if(chart){ chart.destroy(); chart = null; } }
 
+  function initSidebarResizer(){
+    const layout = document.querySelector(".layout");
+    const sidebar = document.querySelector(".sidebar");
+    const resizer = document.getElementById("sidebarResizer");
+    if(!layout || !sidebar || !resizer) return;
+
+    const savedWidth = Number(localStorage.getItem("stormxSidebarWidth"));
+    if(Number.isFinite(savedWidth)){
+      const maxSavedWidth = Math.max(360, window.innerWidth - 360);
+      document.documentElement.style.setProperty("--sidebar-width", `${Math.min(Math.max(savedWidth, 360), maxSavedWidth)}px`);
+    }
+
+    let dragging = false;
+    const resize = (clientX) => {
+      const rect = layout.getBoundingClientRect();
+      const minWidth = 360;
+      const maxWidth = Math.max(minWidth, rect.width - 360);
+      const nextWidth = Math.min(Math.max(clientX - rect.left, minWidth), maxWidth);
+      document.documentElement.style.setProperty("--sidebar-width", `${nextWidth}px`);
+      localStorage.setItem("stormxSidebarWidth", String(Math.round(nextWidth)));
+      if(map) map.invalidateSize(false);
+    };
+
+    resizer.addEventListener("pointerdown", (e) => {
+      if(window.matchMedia("(max-width: 850px)").matches) return;
+      dragging = true;
+      layout.classList.add("resizing");
+      resizer.setPointerCapture(e.pointerId);
+      resize(e.clientX);
+    });
+
+    resizer.addEventListener("pointermove", (e) => {
+      if(!dragging) return;
+      resize(e.clientX);
+    });
+
+    const stopDrag = (e) => {
+      if(!dragging) return;
+      dragging = false;
+      layout.classList.remove("resizing");
+      if(resizer.hasPointerCapture(e.pointerId)) resizer.releasePointerCapture(e.pointerId);
+      map.invalidateSize(false);
+    };
+
+    resizer.addEventListener("pointerup", stopDrag);
+    resizer.addEventListener("pointercancel", stopDrag);
+    window.addEventListener("resize", () => {
+      const currentWidth = sidebar.getBoundingClientRect().width;
+      const maxWidth = Math.max(360, window.innerWidth - 360);
+      if(currentWidth > maxWidth){
+        document.documentElement.style.setProperty("--sidebar-width", `${maxWidth}px`);
+      }
+      map.invalidateSize(false);
+    });
+  }
+
   function getMode(){ return document.getElementById("scaleMode").value; }
   function getScenario(){ return document.getElementById("scenario").value; }
   function getMetric(){ return document.getElementById("metric").value; }
@@ -722,24 +828,59 @@
     document.getElementById("tableWrap").innerHTML = html;
   }
 
-  function appendMeteoSwissSmaHourlyBenchmark(returnPeriods){
+  function renderPrototypeDownloadNotice({ analysis, scenario }){
+    show("tableCard", true);
+    document.getElementById("tableTitle").textContent = "Prototype download";
+    document.getElementById("tableSubtitle").textContent = analysisProductLabel(analysis);
+    document.getElementById("tableWrap").innerHTML = `
+      <div class="notice">
+        <span class="badge badgeSynthetic">Synthetic prototype</span>
+        <strong>This download demonstrates the expected file structure only.</strong>
+        The values are generated in the browser for the ${scenarioLabel(scenario).toLowerCase()} demo and should not be used for engineering design, insurance pricing, or operational decisions.
+      </div>
+    `;
+  }
+
+  function appendMeteoSwissSmaHourlyValidation(matrixRows, returnPeriods, metric){
+    const stormx60 = matrixRows.find(row => row.minutes === 60);
+    if(!stormx60) return;
+
     const wanted = new Set(returnPeriods);
     const rows = METEOSWISS_SMA_HOURLY_IDF.filter(r => wanted.has(r.rp));
     if(rows.length === 0) return;
 
-    let html = `<div style="margin-top:14px;" class="tiny">
-      MeteoSwiss validation benchmark for SMA - Zürich / Fluntern, 1-hour precipitation, 1982-2022.
+    let html = `<div class="notice">
+      <span class="badge badgeSynthetic">StormX demo: synthetic prototype</span>
+      <span class="badge badgeOfficial">MeteoSwiss: official benchmark</span>
+      <strong>Validation check for SMA - Zürich / Fluntern.</strong>
+      This compares the synthetic StormX 60-minute present-climate IDF values with the official MeteoSwiss 1-hour precipitation benchmark.
     </div>`;
     html += `<table><thead><tr>
       <th>Return period (yr)</th>
+      <th>StormX demo median (mm/h)</th>
       <th>MeteoSwiss median (mm/h)</th>
-      <th>Lower bound (mm/h)</th>
-      <th>Upper bound (mm/h)</th>
+      <th>Difference (mm/h)</th>
+      <th>Difference (%)</th>
     </tr></thead><tbody>`;
     for(const r of rows){
-      html += `<tr><td>${r.rp}</td><td>${fmt(r.med)}</td><td>${fmt(r.lo)}</td><td>${fmt(r.hi)}</td></tr>`;
+      const cell = stormx60.values[r.rp];
+      if(!cell) continue;
+      const stormxIntensity = metric === "intensity" ? cell.med : depthToIntensityMmPerH(cell.med, 60);
+      const diff = stormxIntensity - r.med;
+      const diffPct = (diff / r.med) * 100;
+      const diffClass = Math.abs(diffPct) <= 20 ? "validationGood" : "validationWarn";
+      html += `<tr>
+        <td>${r.rp}</td>
+        <td>${fmt(stormxIntensity)}</td>
+        <td>${fmt(r.med)}</td>
+        <td>${fmt(diff)}</td>
+        <td><span class="${diffClass}">${fmt(diffPct)}%</span></td>
+      </tr>`;
     }
     html += `</tbody></table>`;
+    html += `<div class="tiny" style="margin-top:8px;">
+      MeteoSwiss source: climate-extremes-precipitation-subdaily, 1-hour sum, all seasons, 1982-2022. StormX values shown here are demo values generated by the static page.
+    </div>`;
     document.getElementById("tableWrap").innerHTML += html;
   }
 
@@ -847,6 +988,14 @@
       let summaryHtml = "";
       summaryHtml += `<div><b>Product:</b> ${analysisProductLabel(analysis)}</div>`;
       summaryHtml += `<div><b>Climate:</b> ${scenarioLabel(effectiveScenario)}</div>`;
+      if(isGriddedIdfAnalysis(analysis)){
+        summaryHtml += `<div><span class="badge badgeSynthetic">StormX demo values: synthetic prototype</span></div>`;
+        if(analysis === "idf_grid_current"){
+          summaryHtml += `<div><span class="badge badgeOfficial">MeteoSwiss benchmark available for SMA, 60 min</span></div>`;
+        }
+      } else {
+        summaryHtml += `<div><span class="badge badgeSynthetic">Prototype download: example file structure only</span></div>`;
+      }
       if(mode === "point"){
         summaryHtml += `<div><b>Scale:</b> Point</div>`;
         if(activeStation){
@@ -875,12 +1024,14 @@
       // Download products
       if(isRainfallFieldAnalysis(analysis)){
         await downloadRainfallField2D({ mode, pointLatLng: activePointLatLng, polygonGeoJSON, scenario: effectiveScenario });
-        setStatus(`Download started: ${analysisProductLabel(analysis)}.`);
+        renderPrototypeDownloadNotice({ analysis, scenario: effectiveScenario });
+        setStatus(`Download started: ${analysisProductLabel(analysis)}. Prototype file structure only; values are synthetic.`);
         return;
       }
       if(isDesignStormAnalysis(analysis)){
         await vpiDownloadStormEventSet({ mode, pointLatLng: activePointLatLng, polygonGeoJSON, scenario: effectiveScenario, returnPeriods });
-        setStatus(`Download started: ${analysisProductLabel(analysis)}.`);
+        renderPrototypeDownloadNotice({ analysis, scenario: effectiveScenario });
+        setStatus(`Download started: ${analysisProductLabel(analysis)}. Prototype file structure only; values are synthetic.`);
         return;
       }
 
@@ -916,18 +1067,18 @@
         show("tableCard", wantTable);
         document.getElementById("tableTitle").textContent = analysisProductLabel(analysis);
         document.getElementById("tableSubtitle").textContent =
-          `${scenarioLabel(effectiveScenario)} • Each cell shows median + P2.5–P97.5 • ${unit}`;
+          `${scenarioLabel(effectiveScenario)} • Synthetic StormX demo values • Each cell shows median + P2.5–P97.5 • ${unit}`;
         if(wantTable) {
           renderMatrixTable(matrixRows, unit, returnPeriods);
           if(analysis === "idf_grid_current" && activeStation && activeStation.code === "SMA" && chosenDur.includes(60)){
-            appendMeteoSwissSmaHourlyBenchmark(returnPeriods);
+            appendMeteoSwissSmaHourlyValidation(matrixRows, returnPeriods, metric);
           }
         }
 
         show("graphCard", wantGraph);
         document.getElementById("graphTitle").textContent = "Gridded IDF curves (median only)";
         document.getElementById("graphSubtitle").textContent =
-          `One curve per duration (median). Full uncertainty values are available in the table.`;
+          `Synthetic StormX demo values. One curve per duration (median). Full uncertainty values are available in the table.`;
         if(wantGraph) renderMatrixMedianChart(matrixRows, unit, returnPeriods);
 
       }
@@ -961,6 +1112,7 @@
   });
 
   // Init
+  initSidebarResizer();
   refreshUI();
   renderMeteoSwissZhStations(true);
 </script>
