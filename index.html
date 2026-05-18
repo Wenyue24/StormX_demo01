@@ -1,0 +1,1248 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>StormX – Climate-Adaptive IDFs (Zurich demo)</title>
+
+  <!-- Leaflet + Leaflet.Draw CSS -->
+  <link rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossorigin=""/>
+  <link rel="stylesheet"
+        href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css"
+        crossorigin=""/>
+
+  <style>
+    :root{ --sidebar-width: 520px; }
+    html, body { height: 100%; margin: 0; }
+    .layout{
+      height: 100%;
+      display: grid;
+      grid-template-columns: minmax(360px, var(--sidebar-width)) 8px minmax(0, 1fr);
+      background:#0f1115;
+      color:#e8e8e8;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", sans-serif;
+    }
+    .sidebar{ padding:16px; border-right:1px solid #2a2f3a; overflow:auto; min-width:0; }
+    .sidebar-resizer{
+      width:8px;
+      cursor:col-resize;
+      background:#0f1115;
+      border-left:1px solid #2a2f3a;
+      border-right:1px solid #2a2f3a;
+      position:relative;
+      z-index:500;
+      touch-action:none;
+    }
+    .sidebar-resizer::after{
+      content:"";
+      position:absolute;
+      top:32px;
+      bottom:32px;
+      left:3px;
+      width:2px;
+      border-radius:999px;
+      background:#8b94a7;
+      opacity:.55;
+    }
+    .sidebar-resizer:hover::after,
+    .layout.resizing .sidebar-resizer::after{ opacity:.95; background:#cfd6e6; }
+    .layout.resizing,
+    .layout.resizing *{ cursor:col-resize !important; user-select:none; }
+    .title{ margin:0 0 10px 0; font-size:18px; font-weight:900; }
+    .sub{ margin:0 0 14px 0; font-size:12px; opacity:.86; line-height:1.45; }
+    .grid{ display:grid; gap:10px; }
+    .row2{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    label{ display:grid; gap:6px; font-size:13px; }
+    select, button{
+      width:100%; padding:10px; border-radius:10px;
+      border:1px solid #2a2f3a; background:#151a22; color:#e8e8e8;
+      font-size:14px; outline:none;
+    }
+    button{ cursor:pointer; font-weight:900; }
+    button:disabled{ opacity:.5; cursor:not-allowed; }
+    select:disabled{ opacity:.65; cursor:not-allowed; }
+    .status{ font-size:12px; opacity:.92; line-height:1.45; }
+    .badge{
+      display:inline-block; padding:2px 8px; border-radius:999px;
+      font-size:11px; font-weight:900; margin:2px 6px 2px 0;
+      border:1px solid #2a2f3a;
+    }
+    .badgeSynthetic{ background:#241b10; border-color:#7a5622; color:#ffd28a; }
+    .badgeOfficial{ background:#102217; border-color:#2f7a4b; color:#9ee6b5; }
+    .notice{
+      margin-top:10px; padding:10px; border-radius:10px;
+      border:1px solid #3a4252; background:#151a22;
+      font-size:12px; line-height:1.45;
+    }
+    .notice strong{ color:#ffffff; }
+    .validationGood{ color:#9ee6b5; font-weight:900; }
+    .validationWarn{ color:#ffd28a; font-weight:900; }
+    .card{
+      margin-top:10px; padding:12px;
+      border:1px solid #2a2f3a; border-radius:12px; background:#12161e;
+    }
+    .card h3{ margin:0 0 8px 0; font-size:13px; font-weight:900; }
+    .tiny{ font-size:11px; opacity:.76; line-height:1.45; }
+    .kv{ font-size:13px; line-height:1.55; }
+    .hr{ margin:16px 0; border:0; height:1px; background:#2a2f3a; opacity:.7; }
+    #map{ height:100%; width:100%; min-width:0; }
+    .toggleRow{ display:flex; gap:10px; align-items:center; font-size:12px; opacity:.92; margin-top:6px; flex-wrap: wrap; }
+    .toggleRow input{ transform: translateY(1px); }
+
+    table{ width:100%; border-collapse:collapse; font-size:12px; margin-top:10px; }
+    th, td{ border:1px solid #2a2f3a; padding:6px 8px; text-align:right; vertical-align: top; }
+    th{ background:#151a22; font-weight:900; }
+    td:first-child, th:first-child{ text-align:left; white-space: nowrap; }
+    .cellMed{ font-weight:800; display:block; }
+    .cellBand{ font-size:11px; opacity:.72; display:block; margin-top:2px; }
+
+    canvas{ max-width:100%; background:#0f1115; border-radius:10px; }
+
+    .pill{
+      display:inline-block; padding:2px 8px; border:1px solid #2a2f3a;
+      border-radius:999px; background:#151a22; font-size:11px; opacity:.9; margin-left:6px;
+    }
+    @media (max-width: 850px){
+      :root{ --sidebar-width: 100%; }
+      .layout{ grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+      .sidebar{ max-height:45vh; border-right:0; border-bottom:1px solid #2a2f3a; }
+      .sidebar-resizer{ display:none; }
+      #map{ min-height:55vh; }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="layout">
+    <div class="sidebar">
+      <h1 class="title">
+        StormX (Zurich demo)
+        <span class="pill">Interactive Demo</span>
+      </h1>
+
+      <p class="sub">
+        <strong>StormX</strong> transforms observed rainfall into climate-adaptive
+        <b>2D rainfall fields</b>, <b>Intensity–Duration–Frequency (IDF)</b> curves,
+        and <b>design-storm ensembles</b> for robust flood-risk assessment and
+        resilient infrastructure planning.
+        <br><br>
+        Built from station, radar, and satellite observations, StormX provides
+        current and future rainfall products for stations, points, catchments,
+        and user-defined areas. Engineers, insurers, municipalities, and planners
+        can directly use these outputs in flood modelling, drainage design,
+        infrastructure planning, and climate adaptation applications.
+        <br><br>
+        Contact for pilot access or collaboration:
+        <a href="mailto:wenyuezou9@gmail.com" style="color:#cfd6e6;">wenyuezou9@gmail.com</a>
+      </p>
+
+    <div class="grid">
+      <div class="row2">
+        <label>
+          Spatial scale
+          <select id="scaleMode">
+            <option value="point" selected>Point (station / click)</option>
+            <option value="area">Area (polygon / draw)</option>
+          </select>
+        </label>
+
+        <label>
+          Output variable
+          <select id="metric">
+            <option value="intensity" selected>Rainfall intensity (mm/h)</option>
+            <option value="depth">Rainfall depth (mm)</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="row2">
+        <label>
+          Climate scenario (from analysis)
+          <select id="scenario">
+            <option value="current" selected>Current climate</option>
+            <option value="plus2">Warming +2°C</option>
+          </select>
+        </label>
+
+        <label>
+          Analysis
+          <select id="analysisType">
+            <option value="rainfield_current" selected>2D rainfall fields — present climate</option>
+            <option value="rainfield_plus2">2D rainfall fields — future +2°C</option>
+            <option value="idf_grid_current">Gridded IDFs — present climate (vs MeteoSwiss)</option>
+            <option value="idf_grid_plus2">Gridded IDFs — future +2°C</option>
+            <option value="storms_current">Design-storm ensembles — present climate</option>
+            <option value="storms_plus2">Design-storm ensembles — future +2°C</option>
+          </select>
+        </label>
+      </div>
+
+      <!-- Duration controls (for curve/change) -->
+      <div id="singleDurationControls" class="grid" style="margin-top:2px;">
+        <label>
+          Duration
+          <select id="durationSingle">
+            <option value="5">5 min</option>
+            <option value="10">10 min</option>
+            <option value="15">15 min</option>
+            <option value="30">30 min</option>
+            <option value="60" selected>60 min</option>
+            <option value="120">2 h</option>
+            <option value="360">6 h</option>
+            <option value="1440">24 h</option>
+          </select>
+        </label>
+      </div>
+
+      <!-- Return periods moved below duration -->
+      <div id="rpControls" class="grid" style="margin-top:2px;">
+        <label>
+          Return periods (years)
+          <select id="returnPeriods" multiple size="5">
+            <option value="2" selected>2</option>
+            <option value="5" selected>5</option>
+            <option value="10" selected>10</option>
+            <option value="20" selected>20</option>
+            <option value="30">30</option>
+            <option value="50" selected>50</option>
+            <option value="100" selected>100</option>
+            <option value="300" selected>300</option>
+            <option value="500" selected>500</option>
+          </select>
+        </label>
+        <div class="tiny">Tip: Ctrl/Shift-click to select multiple return periods.</div>
+      </div>
+
+      <!-- Matrix needs multi durations -->
+      <div id="matrixControls" class="grid" style="display:none; margin-top:2px;">
+        <label>
+          Durations (multi-select)
+          <select id="durationMulti" multiple size="7">
+            <option value="5">5 min</option>
+            <option value="10">10 min</option>
+            <option value="15">15 min</option>
+            <option value="30" selected>30 min</option>
+            <option value="60" selected>60 min</option>
+            <option value="120">2 h</option>
+            <option value="360">6 h</option>
+            <option value="1440">24 h</option>
+          </select>
+        </label>
+        <div class="tiny">Tip: Ctrl/Shift-click to select multiple durations.</div>
+      </div>
+
+      <div class="toggleRow">
+        <input id="showStations" type="checkbox" checked />
+        <label for="showStations" style="display:inline; cursor:pointer;">Show MeteoSwiss stations in Canton Zurich</label>
+
+        <span style="opacity:0.5;">|</span>
+
+        <input id="showTable" type="checkbox" checked />
+        <label for="showTable" style="display:inline; cursor:pointer;">Show table</label>
+
+        <span style="opacity:0.5;">|</span>
+
+        <input id="showGraph" type="checkbox" checked />
+        <label for="showGraph" style="display:inline; cursor:pointer;">Show graph</label>
+      </div>
+
+      <button id="computeBtn" disabled>Run</button>
+
+      <div id="status" class="status">
+        Point mode: click a point on the map (or a station). Area mode: draw a polygon.
+      </div>
+
+      <div id="summaryCard" class="card" style="display:none;">
+        <h3>Selection summary</h3>
+        <div class="kv" id="summaryText"></div>
+      </div>
+
+      <div id="tableCard" class="card" style="display:none;">
+        <h3 id="tableTitle">Results</h3>
+        <div class="tiny" id="tableSubtitle"></div>
+        <div id="tableWrap"></div>
+      </div>
+
+      <div id="graphCard" class="card" style="display:none;">
+        <h3 id="graphTitle">Chart</h3>
+        <div class="tiny" id="graphSubtitle"></div>
+        <div style="margin-top:10px;">
+          <canvas id="chart" height="250"></canvas>
+        </div>
+      </div>
+
+      <hr class="hr"/>
+      <div class="tiny">
+        Notes: station locations are from MeteoSwiss Open Data metadata. No meteorological records are loaded for the station layer.
+        StormX demo IDFs and prototype downloads are synthetic unless explicitly labelled as a MeteoSwiss benchmark.
+      </div>
+    </div>
+  </div>
+
+  <div id="sidebarResizer" class="sidebar-resizer" role="separator" aria-label="Resize control panel" title="Drag to resize the control panel"></div>
+  <div id="map"></div>
+</div>
+
+<!-- Libraries -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin=""></script>
+<script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js" crossorigin=""></script>
+<script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js" crossorigin=""></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin=""></script>
+
+<script>
+  // ----------------------------
+  // Zurich config
+  // ----------------------------
+  const ZURICH_CENTER = [47.3769, 8.5417]; // Zurich city center
+  const ZURICH_ZOOM = 12;
+
+  // MeteoSwiss Open Data station locations in Canton Zurich (ZH).
+  // Sources:
+  // - https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/ogd-smn_meta_stations.csv
+  // - https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn-precip/ogd-smn-precip_meta_stations.csv
+  // Location metadata only; no meteorological records are loaded by this demo.
+  const METEOSWISS_ZH_STATIONS = [
+    { code: "AFI", name: "Andelfingen", lat: 47.604669, lng: 8.670289, altitude_m: 360, canton: "ZH", network: "Automatic precipitation", source: "MeteoSwiss Open Data" },
+    { code: "BUE", name: "Bülach", lat: 47.519594, lng: 8.527731, altitude_m: 403, canton: "ZH", network: "Automatic precipitation", source: "MeteoSwiss Open Data" },
+    { code: "DIT", name: "Dietikon", lat: 47.413558, lng: 8.404472, altitude_m: 384, canton: "ZH", network: "Automatic precipitation", source: "MeteoSwiss Open Data" },
+    { code: "HIW", name: "Hinwil", lat: 47.309147, lng: 8.812358, altitude_m: 539, canton: "ZH", network: "Automatic precipitation", source: "MeteoSwiss Open Data" },
+    { code: "HOE", name: "Hörnli", lat: 47.370864, lng: 8.941644, altitude_m: 1133, canton: "ZH", network: "Automatic weather", source: "MeteoSwiss Open Data" },
+    { code: "KLO", name: "Zürich / Kloten", lat: 47.479611, lng: 8.535961, altitude_m: 426, canton: "ZH", network: "Automatic weather", source: "MeteoSwiss Open Data" },
+    { code: "KUE", name: "Küsnacht, ZH", lat: 47.310325, lng: 8.585281, altitude_m: 413, canton: "ZH", network: "Automatic precipitation", source: "MeteoSwiss Open Data" },
+    { code: "LAE", name: "Lägern", lat: 47.481933, lng: 8.397222, altitude_m: 845, canton: "ZH", network: "Automatic weather", source: "MeteoSwiss Open Data" },
+    { code: "LGA", name: "Langnau am Albis", lat: 47.287825, lng: 8.532708, altitude_m: 535, canton: "ZH", network: "Automatic precipitation", source: "MeteoSwiss Open Data" },
+    { code: "OPF", name: "Opfikon", lat: 47.437633, lng: 8.560339, altitude_m: 424, canton: "ZH", network: "Automatic precipitation", source: "MeteoSwiss Open Data" },
+    { code: "PFA", name: "Pfäffikon, ZH", lat: 47.376817, lng: 8.754864, altitude_m: 537, canton: "ZH", network: "Automatic weather", source: "MeteoSwiss Open Data" },
+    { code: "REH", name: "Zürich / Affoltern", lat: 47.427694, lng: 8.517953, altitude_m: 444, canton: "ZH", network: "Automatic weather", source: "MeteoSwiss Open Data" },
+    { code: "SMA", name: "Zürich / Fluntern", lat: 47.377925, lng: 8.565742, altitude_m: 556, canton: "ZH", network: "Automatic weather", source: "MeteoSwiss Open Data" },
+    { code: "UEB", name: "Uetliberg", lat: 47.351364, lng: 8.490225, altitude_m: 854, canton: "ZH", network: "Automatic weather", source: "MeteoSwiss Open Data" },
+    { code: "UST", name: "Uster", lat: 47.350736, lng: 8.692883, altitude_m: 438, canton: "ZH", network: "Automatic precipitation", source: "MeteoSwiss Open Data" },
+    { code: "WAE", name: "Wädenswil", lat: 47.220958, lng: 8.677706, altitude_m: 485, canton: "ZH", network: "Automatic weather", source: "MeteoSwiss Open Data" },
+    { code: "WAG", name: "Waldegg", lat: 47.362269, lng: 8.454789, altitude_m: 545, canton: "ZH", network: "Automatic precipitation", source: "MeteoSwiss Open Data" },
+    { code: "WIN", name: "Winterthur / Seen", lat: 47.474672, lng: 8.763189, altitude_m: 506, canton: "ZH", network: "Automatic precipitation", source: "MeteoSwiss Open Data" },
+    { code: "ZWK", name: "Zwillikon", lat: 47.290092, lng: 8.431958, altitude_m: 461, canton: "ZH", network: "Automatic precipitation", source: "MeteoSwiss Open Data" }
+  ];
+
+  // Official MeteoSwiss benchmark for Zurich / Fluntern (SMA).
+  // Product: climate-extremes-precipitation-subdaily, 1-hour-sum, all seasons, 1982-2022.
+  // Source ZIP: climate-extremes-precipitation-subdaily_1-hour-sum_DJF-MAM-JJA-SON_SMA_en.zip
+  // Table: xss-prec_1-hour-sum_DJF-MAM-JJA-SON_1981-lastyear_bayes-insitu_SMA_qual1_tab-rprl_E.csv
+  const METEOSWISS_SMA_HOURLY_IDF = [
+    { rp: 2, med: 18.6, lo: 16.5, hi: 20.9 },
+    { rp: 5, med: 27.0, lo: 23.4, hi: 32.1 },
+    { rp: 10, med: 33.7, lo: 28.4, hi: 42.7 },
+    { rp: 20, med: 41.2, lo: 33.7, hi: 55.4 },
+    { rp: 30, med: 46.0, lo: 36.7, hi: 64.1 },
+    { rp: 50, med: 53.0, lo: 40.9, hi: 78.3 },
+    { rp: 100, med: 63.6, lo: 46.5, hi: 100.7 }
+  ];
+
+  // Demo calibration for the SMA 60-minute present-climate validation case.
+  // These controlled offsets keep synthetic StormX medians within +/-5% of MeteoSwiss
+  // for the official 2-100 year benchmark return levels.
+  const SMA_STORMX_DEMO_DIFF_PCT = {
+    2: -3.5,
+    5: -2.4,
+    10: -1.2,
+    20: 0.8,
+    30: 1.6,
+    50: 2.7,
+    100: 4.1
+  };
+
+  const DURATIONS = [
+    { label: "5 min", minutes: 5 },
+    { label: "10 min", minutes: 10 },
+    { label: "15 min", minutes: 15 },
+    { label: "30 min", minutes: 30 },
+    { label: "60 min", minutes: 60 },
+    { label: "2 h", minutes: 120 },
+    { label: "6 h", minutes: 360 },
+    { label: "24 h", minutes: 1440 },
+  ];
+  function durationLabel(minutes){
+    const d = DURATIONS.find(x => x.minutes === minutes);
+    return d ? d.label : `${minutes} min`;
+  }
+
+  // ----------------------------
+  // Helpers
+  // ----------------------------
+  function depthToIntensityMmPerH(depthMm, durationMinutes){
+    return depthMm / (durationMinutes / 60);
+  }
+  function setStatus(msg){ document.getElementById("status").textContent = msg; }
+  function show(id, on){ document.getElementById(id).style.display = on ? "block" : "none"; }
+  function setComputeEnabled(on){ document.getElementById("computeBtn").disabled = !on; }
+  function fmt(n){ return (Math.round(n * 100) / 100).toFixed(2); }
+  function getSelectedNumbers(selectEl){
+    return Array.from(selectEl.selectedOptions).map(o => Number(o.value)).filter(n => Number.isFinite(n));
+  }
+
+  // ----------------------------
+  // SMA-anchored synthetic backends (placeholders; keep until you wire real data).
+  // The demo uses true MeteoSwiss SMA 60-minute return levels as the reference curve,
+  // then applies duration, location, and scenario scaling for synthetic StormX outputs.
+  // Band represented by P2.5 and P97.5 (no “95%” text in UI).
+  // ----------------------------
+  const DURATION_DEPTH_RATIO_FROM_60MIN = [
+    { minutes: 5, ratio: 0.23 },
+    { minutes: 10, ratio: 0.34 },
+    { minutes: 15, ratio: 0.43 },
+    { minutes: 30, ratio: 0.66 },
+    { minutes: 60, ratio: 1.00 },
+    { minutes: 120, ratio: 1.45 },
+    { minutes: 360, ratio: 2.35 },
+    { minutes: 1440, ratio: 4.40 }
+  ];
+
+  function clamp(value, min, max){
+    return Math.min(Math.max(value, min), max);
+  }
+
+  function interpolateLogX(points, xValue, field){
+    const sorted = [...points].sort((a,b) => a.x - b.x);
+    if(xValue <= sorted[0].x){
+      const a = sorted[0], b = sorted[1];
+      return a[field] + (b[field] - a[field]) * (xValue - a.x) / (b.x - a.x);
+    }
+    if(xValue >= sorted[sorted.length - 1].x){
+      const a = sorted[sorted.length - 2], b = sorted[sorted.length - 1];
+      return a[field] + (b[field] - a[field]) * (xValue - a.x) / (b.x - a.x);
+    }
+    for(let i=0; i<sorted.length - 1; i++){
+      const a = sorted[i], b = sorted[i + 1];
+      if(xValue >= a.x && xValue <= b.x){
+        return a[field] + (b[field] - a[field]) * (xValue - a.x) / (b.x - a.x);
+      }
+    }
+    return sorted[sorted.length - 1][field];
+  }
+
+  function getSmaHourlyBenchmarkByRp(rp, field="med"){
+    const exact = METEOSWISS_SMA_HOURLY_IDF.find(row => row.rp === rp);
+    if(exact) return exact[field];
+    const points = METEOSWISS_SMA_HOURLY_IDF.map(row => ({
+      x: Math.log(row.rp),
+      med: row.med,
+      lo: row.lo,
+      hi: row.hi
+    }));
+    return Math.max(0.1, interpolateLogX(points, Math.log(rp), field));
+  }
+
+  function getDurationDepthRatio(minutes){
+    const exact = DURATION_DEPTH_RATIO_FROM_60MIN.find(row => row.minutes === minutes);
+    if(exact) return exact.ratio;
+    const points = DURATION_DEPTH_RATIO_FROM_60MIN.map(row => ({
+      x: Math.log(row.minutes),
+      ratio: row.ratio
+    }));
+    return Math.max(0.05, interpolateLogX(points, Math.log(minutes), "ratio"));
+  }
+
+  function getSyntheticLocationFactor({ mode, pointLatLng, polygonGeoJSON }){
+    let loc = pointLatLng;
+    if(mode === "area" && polygonGeoJSON){
+      const c = turf.centroid(polygonGeoJSON).geometry.coordinates;
+      loc = L.latLng(c[1], c[0]);
+    }
+    if(!loc) return 1.0;
+
+    const sma = getStationByCode("SMA");
+    if(!sma) return 1.0;
+    const smaLatLng = L.latLng(sma.lat, sma.lng);
+    const distanceKmFromSma = loc.distanceTo(smaLatLng) / 1000;
+    if(distanceKmFromSma <= 0.25) return 1.0;
+
+    let nearestStation = null;
+    let nearestDistance = Infinity;
+    for(const station of METEOSWISS_ZH_STATIONS){
+      const d = loc.distanceTo(L.latLng(station.lat, station.lng));
+      if(d < nearestDistance){
+        nearestDistance = d;
+        nearestStation = station;
+      }
+    }
+
+    const altitudeDeltaKm = nearestStation ? (nearestStation.altitude_m - sma.altitude_m) / 1000 : 0;
+    const terrainFactor = clamp(altitudeDeltaKm * 0.12, -0.04, 0.07);
+    const localTexture = (Math.sin(loc.lat * 12.9898 + loc.lng * 78.233) + 1) / 2;
+    const textureFactor = (localTexture - 0.5) * 0.08;
+    const distanceFactor = clamp(distanceKmFromSma / 80, 0, 0.04);
+
+    return clamp(1 + terrainFactor + textureFactor + distanceFactor, 0.88, 1.16);
+  }
+
+  function getScenarioIdfFactor(scenario, minutes){
+    if(scenario !== "plus2") return 1.0;
+    const shortDurationBoost = clamp((60 - Math.min(minutes, 60)) / 60, 0, 1) * 0.05;
+    const longDurationBoost = clamp((minutes - 60) / 1380, 0, 1) * 0.03;
+    return 1.15 + shortDurationBoost + longDurationBoost;
+  }
+
+  function getStormxDemoBiasFactor(rp, scenario){
+    if(scenario !== "current") return 1.0;
+    const exact = SMA_STORMX_DEMO_DIFF_PCT[rp];
+    if(exact !== undefined) return 1 + exact / 100;
+
+    const points = Object.entries(SMA_STORMX_DEMO_DIFF_PCT).map(([key, value]) => ({
+      x: Math.log(Number(key)),
+      pct: value
+    }));
+    const diffPct = clamp(interpolateLogX(points, Math.log(rp), "pct"), -5, 5);
+    return 1 + diffPct / 100;
+  }
+
+  function buildSyntheticIdfCell({ rp, minutes, scenario, locationFactor }){
+    const durationRatio = getDurationDepthRatio(minutes);
+    const scenarioFactor = getScenarioIdfFactor(scenario, minutes);
+    const biasFactor = getStormxDemoBiasFactor(rp, scenario);
+
+    const smaMed60 = getSmaHourlyBenchmarkByRp(rp, "med");
+    const smaLo60 = getSmaHourlyBenchmarkByRp(rp, "lo");
+    const smaHi60 = getSmaHourlyBenchmarkByRp(rp, "hi");
+
+    return {
+      med: Math.max(0.1, smaMed60 * durationRatio * locationFactor * scenarioFactor * biasFactor),
+      lo: Math.max(0.1, smaLo60 * durationRatio * locationFactor * scenarioFactor * biasFactor),
+      hi: Math.max(0.1, smaHi60 * durationRatio * locationFactor * scenarioFactor * biasFactor)
+    };
+  }
+
+  async function queryCurveByReturnPeriod({ mode, pointLatLng, polygonGeoJSON, durationMinutes, scenario, returnPeriods }) {
+    const locationFactor = getSyntheticLocationFactor({ mode, pointLatLng, polygonGeoJSON });
+
+    const series = returnPeriods.map(rp => {
+      const cell = buildSyntheticIdfCell({ rp, minutes: durationMinutes, scenario, locationFactor });
+      return { rp, depth_mm_med: cell.med, depth_mm_lo: cell.lo, depth_mm_hi: cell.hi };
+    });
+
+    return { series };
+  }
+
+  async function queryMatrixDurRP_CI({ mode, pointLatLng, polygonGeoJSON, durationMinutesList, scenario, returnPeriods }) {
+    const locationFactor = getSyntheticLocationFactor({ mode, pointLatLng, polygonGeoJSON });
+
+    const matrix = durationMinutesList.map(minutes => {
+      const row = {};
+      for (const rp of returnPeriods) {
+        row[rp] = buildSyntheticIdfCell({ rp, minutes, scenario, locationFactor });
+      }
+      return { minutes, row };
+    });
+
+    return { matrix };
+  }
+
+  async function queryChangeByReturnPeriod({ mode, pointLatLng, polygonGeoJSON, durationMinutes, metric, returnPeriods }) {
+    const cur = await queryCurveByReturnPeriod({ mode, pointLatLng, polygonGeoJSON, durationMinutes, scenario: "current", returnPeriods });
+    const fut = await queryCurveByReturnPeriod({ mode, pointLatLng, polygonGeoJSON, durationMinutes, scenario: "plus2", returnPeriods });
+
+    function conv(depth){ return (metric === "intensity") ? depthToIntensityMmPerH(depth, durationMinutes) : depth; }
+
+    const rows = returnPeriods.map((rp, i) => {
+      const c = cur.series[i];
+      const f = fut.series[i];
+
+      const c_med = conv(c.depth_mm_med), c_lo = conv(c.depth_mm_lo), c_hi = conv(c.depth_mm_hi);
+      const f_med = conv(f.depth_mm_med), f_lo = conv(f.depth_mm_lo), f_hi = conv(f.depth_mm_hi);
+
+      const med = (f_med - c_med) / c_med * 100;
+      const lo = (f_lo - c_hi) / c_hi * 100;
+      const hi = (f_hi - c_lo) / c_lo * 100;
+
+      return { rp, med, lo, hi };
+    });
+
+    return { rows };
+  }
+
+  async function queryMeteoSwissSmaHourly({ returnPeriods }) {
+    const wanted = new Set(returnPeriods);
+    return {
+      rows: METEOSWISS_SMA_HOURLY_IDF.filter(r => wanted.has(r.rp))
+    };
+  }
+
+  // ----------------------------
+  // Downloads (VPI placeholders)
+  // ----------------------------
+  function downloadTextFile(filename, content, mime="text/csv;charset=utf-8") {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function buildSelectionTag({mode, pointLatLng, polygonGeoJSON}) {
+    if (mode === "point" && pointLatLng) return `point_${pointLatLng.lat.toFixed(4)}_${pointLatLng.lng.toFixed(4)}`;
+    if (mode === "area" && polygonGeoJSON) {
+      const c = turf.centroid(polygonGeoJSON).geometry.coordinates;
+      return `area_${c[1].toFixed(4)}_${c[0].toFixed(4)}`;
+    }
+    return "selection";
+  }
+
+  async function vpiDownloadTimeSeries({ mode, pointLatLng, polygonGeoJSON }) {
+    const tag = buildSelectionTag({mode, pointLatLng, polygonGeoJSON});
+    const header = "timestamp_iso,scenario,rain_mm_per_h\n";
+    const lines = [];
+    const start = new Date("2020-01-01T00:00:00Z").getTime();
+    for (let i=0; i<48; i++) {
+      const t = new Date(start + i*3600*1000).toISOString();
+      const base = 2 + 3*Math.random();
+      lines.push(`${t},present,${(base).toFixed(3)}`);
+      lines.push(`${t},plus2C,${(base*1.15).toFixed(3)}`);
+    }
+    downloadTextFile(`VPI_rainfall_timeseries_${tag}.csv`, header + lines.join("\n"));
+  }
+
+  async function downloadRainfallField2D({ mode, pointLatLng, polygonGeoJSON, scenario }) {
+    const tag = buildSelectionTag({mode, pointLatLng, polygonGeoJSON});
+    const scenarioName = scenario === "plus2" ? "plus2C" : "present";
+    const center = mode === "area" && polygonGeoJSON
+      ? L.latLng(turf.centroid(polygonGeoJSON).geometry.coordinates[1], turf.centroid(polygonGeoJSON).geometry.coordinates[0])
+      : pointLatLng;
+    const header = "grid_cell_id,scenario,lat,lon,timestamp_iso,rain_mm_per_h\n";
+    const lines = [];
+    const start = new Date("2020-01-01T00:00:00Z").getTime();
+    let id = 1;
+    for(let row=-1; row<=1; row++){
+      for(let col=-1; col<=1; col++){
+        const lat = center.lat + row * 0.01;
+        const lon = center.lng + col * 0.01;
+        for(let h=0; h<24; h++){
+          const t = new Date(start + h*3600*1000).toISOString();
+          const seed = Math.abs(Math.sin(lat * 12.9898 + lon * 78.233 + h));
+          const present = Math.max(0, 1.5 + 8 * seed * Math.exp(-Math.abs(h - 12) / 8));
+          const value = scenario === "plus2" ? present * 1.18 : present;
+          lines.push(`${id},${scenarioName},${lat.toFixed(5)},${lon.toFixed(5)},${t},${value.toFixed(3)}`);
+        }
+        id++;
+      }
+    }
+    downloadTextFile(`StormX_2D_rainfall_field_${scenarioName}_${tag}.csv`, header + lines.join("\n"));
+  }
+
+  async function vpiDownloadStormEventSet({ mode, pointLatLng, polygonGeoJSON, scenario="both", returnPeriods=[2,5,10,20,50,100] }) {
+    const tag = buildSelectionTag({mode, pointLatLng, polygonGeoJSON});
+    const header = "event_id,scenario,ensemble_member,duration_min,return_period_yr,peak_intensity_mm_per_h\n";
+    const lines = [];
+    const rps = returnPeriods.length ? returnPeriods : [2,5,10,20,50,100];
+    const durations = [5,10,30,60,120];
+    const scenarioList = scenario === "both" ? ["present", "plus2C"] : [scenario === "plus2" ? "plus2C" : "present"];
+    let id = 1;
+    for (const rp of rps) {
+      for (const d of durations) {
+        for (let m=1; m<=5; m++) {
+          const peak = (12 + Math.log(rp)*6) * (60/d) * (0.85 + 0.3*Math.random());
+          for(const scenarioName of scenarioList){
+            const value = scenarioName === "plus2C" ? peak * 1.12 : peak;
+            lines.push(`${id++},${scenarioName},${m},${d},${rp},${value.toFixed(3)}`);
+          }
+        }
+      }
+    }
+    const scenarioTag = scenario === "plus2" ? "plus2C" : scenario === "current" ? "present" : "present_plus2C";
+    downloadTextFile(`StormX_design_storm_ensemble_${scenarioTag}_${tag}.csv`, header + lines.join("\n"));
+  }
+
+  // ----------------------------
+  // Map init
+  // ----------------------------
+  const map = L.map("map", { center: ZURICH_CENTER, zoom: ZURICH_ZOOM });
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap contributors"
+  }).addTo(map);
+
+  // Draw layer
+  const drawnItems = new L.FeatureGroup();
+  map.addLayer(drawnItems);
+
+  const drawControl = new L.Control.Draw({
+    position: "topleft",
+    draw: {
+      polygon: true,
+      polyline: false,
+      rectangle: false,
+      circle: false,
+      circlemarker: false,
+      marker: false
+    },
+    edit: { featureGroup: drawnItems, edit: true, remove: true }
+  });
+  map.addControl(drawControl);
+
+  // Station layer
+  const stationLayer = L.layerGroup().addTo(map);
+
+  let activePolygonLayer = null;
+  let activePointMarker = null;
+  let activePointLatLng = null;
+  let activeStation = null;
+
+  // Chart
+  let chart = null;
+  function destroyChart(){ if(chart){ chart.destroy(); chart = null; } }
+
+  function initSidebarResizer(){
+    const layout = document.querySelector(".layout");
+    const sidebar = document.querySelector(".sidebar");
+    const resizer = document.getElementById("sidebarResizer");
+    if(!layout || !sidebar || !resizer) return;
+
+    const savedWidth = Number(localStorage.getItem("stormxSidebarWidth"));
+    if(Number.isFinite(savedWidth)){
+      const maxSavedWidth = Math.max(360, window.innerWidth - 360);
+      document.documentElement.style.setProperty("--sidebar-width", `${Math.min(Math.max(savedWidth, 360), maxSavedWidth)}px`);
+    }
+
+    let dragging = false;
+    const resize = (clientX) => {
+      const rect = layout.getBoundingClientRect();
+      const minWidth = 360;
+      const maxWidth = Math.max(minWidth, rect.width - 360);
+      const nextWidth = Math.min(Math.max(clientX - rect.left, minWidth), maxWidth);
+      document.documentElement.style.setProperty("--sidebar-width", `${nextWidth}px`);
+      localStorage.setItem("stormxSidebarWidth", String(Math.round(nextWidth)));
+      if(map) map.invalidateSize(false);
+    };
+
+    resizer.addEventListener("pointerdown", (e) => {
+      if(window.matchMedia("(max-width: 850px)").matches) return;
+      dragging = true;
+      layout.classList.add("resizing");
+      resizer.setPointerCapture(e.pointerId);
+      resize(e.clientX);
+    });
+
+    resizer.addEventListener("pointermove", (e) => {
+      if(!dragging) return;
+      resize(e.clientX);
+    });
+
+    const stopDrag = (e) => {
+      if(!dragging) return;
+      dragging = false;
+      layout.classList.remove("resizing");
+      if(resizer.hasPointerCapture(e.pointerId)) resizer.releasePointerCapture(e.pointerId);
+      map.invalidateSize(false);
+    };
+
+    resizer.addEventListener("pointerup", stopDrag);
+    resizer.addEventListener("pointercancel", stopDrag);
+    window.addEventListener("resize", () => {
+      const currentWidth = sidebar.getBoundingClientRect().width;
+      const maxWidth = Math.max(360, window.innerWidth - 360);
+      if(currentWidth > maxWidth){
+        document.documentElement.style.setProperty("--sidebar-width", `${maxWidth}px`);
+      }
+      map.invalidateSize(false);
+    });
+  }
+
+  function getMode(){ return document.getElementById("scaleMode").value; }
+  function getScenario(){ return document.getElementById("scenario").value; }
+  function getMetric(){ return document.getElementById("metric").value; }
+  function getAnalysis(){ return document.getElementById("analysisType").value; }
+  function isRainfallFieldAnalysis(analysis){ return analysis === "rainfield_current" || analysis === "rainfield_plus2"; }
+  function isGriddedIdfAnalysis(analysis){ return analysis === "idf_grid_current" || analysis === "idf_grid_plus2"; }
+  function isDesignStormAnalysis(analysis){ return analysis === "storms_current" || analysis === "storms_plus2"; }
+  function scenarioFromAnalysis(analysis){
+    return (analysis === "rainfield_plus2" || analysis === "idf_grid_plus2" || analysis === "storms_plus2") ? "plus2" : "current";
+  }
+  function scenarioLabel(scenario){ return scenario === "plus2" ? "Future +2°C" : "Present climate"; }
+  function analysisProductLabel(analysis){
+    if(analysis === "rainfield_current") return "2D rainfall fields — present climate";
+    if(analysis === "rainfield_plus2") return "2D rainfall fields — future +2°C";
+    if(analysis === "idf_grid_current") return "Gridded IDFs — present climate (vs MeteoSwiss)";
+    if(analysis === "idf_grid_plus2") return "Gridded IDFs — future +2°C";
+    if(analysis === "storms_current") return "Design-storm ensembles — present climate";
+    if(analysis === "storms_plus2") return "Design-storm ensembles — future +2°C";
+    return analysis;
+  }
+  function getStationByCode(code){ return METEOSWISS_ZH_STATIONS.find(s => s.code === code); }
+
+  function inferSmaFromSelectedPoint(){
+    if(!activePointLatLng) return false;
+    const sma = getStationByCode("SMA");
+    if(!sma) return false;
+    const distanceMeters = activePointLatLng.distanceTo(L.latLng(sma.lat, sma.lng));
+    if(distanceMeters <= 250){
+      activePointLatLng = L.latLng(sma.lat, sma.lng);
+      activeStation = sma;
+      if(activePointMarker) activePointMarker.setLatLng(activePointLatLng);
+      return true;
+    }
+    return false;
+  }
+
+  function resetOutputs(){
+    destroyChart();
+    show("summaryCard", false);
+    show("tableCard", false);
+    show("graphCard", false);
+  }
+
+  function refreshUI(){
+    const analysis = getAnalysis();
+    const isMatrix = isGriddedIdfAnalysis(analysis);
+    const scenarioEl = document.getElementById("scenario");
+    const outputControlsEnabled = isMatrix;
+
+    scenarioEl.value = scenarioFromAnalysis(analysis);
+    scenarioEl.disabled = true;
+    document.getElementById("showTable").disabled = !outputControlsEnabled;
+    document.getElementById("showGraph").disabled = !outputControlsEnabled;
+
+    show("matrixControls", isMatrix);
+    show("singleDurationControls", false);
+    show("rpControls", !isRainfallFieldAnalysis(analysis));
+
+    const mode = getMode();
+    const ok = (mode === "point") ? Boolean(activePointLatLng) : Boolean(activePolygonLayer);
+    setComputeEnabled(ok);
+  }
+
+  // ----------------------------
+  // Render MeteoSwiss station locations in Canton Zurich
+  // ----------------------------
+  function renderMeteoSwissZhStations(showStations){
+    stationLayer.clearLayers();
+    if(!showStations) return;
+
+    for(const s of METEOSWISS_ZH_STATIONS){
+      const m = L.circleMarker([s.lat, s.lng], { radius: 5, weight: 2, fillOpacity: 0.7, bubblingMouseEvents: false });
+      const stationLabel = `${s.code} - ${s.name} (${s.network}, ${s.altitude_m} m)`;
+      m.bindTooltip(stationLabel);
+      m.on("click", (e) => {
+        if(e.originalEvent) L.DomEvent.stop(e.originalEvent);
+        document.getElementById("scaleMode").value = "point";
+        activePointLatLng = L.latLng(s.lat, s.lng);
+        activeStation = s;
+
+        if(!activePointMarker){
+          activePointMarker = L.marker(activePointLatLng).addTo(map);
+        } else {
+          activePointMarker.setLatLng(activePointLatLng);
+        }
+
+        setComputeEnabled(true);
+        setStatus(`Station selected: ${stationLabel}. Click Run.`);
+        resetOutputs();
+        refreshUI();
+      });
+      stationLayer.addLayer(m);
+    }
+  }
+
+  // ----------------------------
+  // Selection events
+  // ----------------------------
+  map.on("click", (e) => {
+    if(getMode() !== "point") return;
+
+    activePointLatLng = e.latlng;
+    activeStation = null;
+    if(!activePointMarker){
+      activePointMarker = L.marker(activePointLatLng).addTo(map);
+    } else {
+      activePointMarker.setLatLng(activePointLatLng);
+    }
+
+    setComputeEnabled(true);
+    setStatus(`Point selected at lat ${activePointLatLng.lat.toFixed(5)}, lon ${activePointLatLng.lng.toFixed(5)}. Click Run.`);
+    resetOutputs();
+  });
+
+  map.on(L.Draw.Event.CREATED, (e) => {
+    drawnItems.clearLayers();
+    activePolygonLayer = e.layer;
+    drawnItems.addLayer(activePolygonLayer);
+
+    if(getMode() === "area"){
+      setComputeEnabled(true);
+      setStatus("Polygon saved. Click Run.");
+    } else {
+      setStatus("Polygon drawn (ignored in Point mode). Switch to Area mode to use it.");
+    }
+    resetOutputs();
+  });
+
+  map.on(L.Draw.Event.EDITED, () => {
+    if(getMode() === "area" && activePolygonLayer){
+      setStatus("Polygon updated. Click Run again.");
+      resetOutputs();
+    }
+  });
+
+  map.on(L.Draw.Event.DELETED, () => {
+    activePolygonLayer = null;
+    if(getMode() === "area"){
+      setComputeEnabled(false);
+      setStatus("Polygon removed. Draw a new polygon.");
+      resetOutputs();
+    }
+  });
+
+  // ----------------------------
+  // Rendering helpers (tables/charts)
+  // ----------------------------
+  function renderCurveTable(rows, unit){
+    let html = `<table>
+      <thead><tr>
+        <th>Return period (yr)</th>
+        <th>Median (${unit})</th>
+        <th>P2.5 (${unit})</th>
+        <th>P97.5 (${unit})</th>
+      </tr></thead><tbody>`;
+    for(const r of rows){
+      html += `<tr><td>${r.rp}</td><td>${fmt(r.med)}</td><td>${fmt(r.lo)}</td><td>${fmt(r.hi)}</td></tr>`;
+    }
+    html += `</tbody></table>`;
+    document.getElementById("tableWrap").innerHTML = html;
+  }
+
+  function renderMatrixTable(matrixRows, unit, returnPeriods){
+    let html = `<table><thead><tr>
+      <th>Duration</th>
+      ${returnPeriods.map(rp => `<th>${rp}y (${unit})<div class="tiny">Med / Band</div></th>`).join("")}
+    </tr></thead><tbody>`;
+    for(const row of matrixRows){
+      html += `<tr><td>${row.label}</td>${
+        returnPeriods.map(rp => {
+          const c = row.values[rp];
+          return `<td><span class="cellMed">${fmt(c.med)}</span><span class="cellBand">${fmt(c.lo)} – ${fmt(c.hi)}</span></td>`;
+        }).join("")
+      }</tr>`;
+    }
+    html += `</tbody></table>`;
+    document.getElementById("tableWrap").innerHTML = html;
+  }
+
+  function calibrateSmaHourlyStormxDemo(matrixRows, { analysis, station }){
+    if(analysis !== "idf_grid_current" || !station || station.code !== "SMA") return;
+
+    const row60 = matrixRows.find(row => row.minutes === 60);
+    if(!row60) return;
+
+    for(const benchmark of METEOSWISS_SMA_HOURLY_IDF){
+      const diffPct = SMA_STORMX_DEMO_DIFF_PCT[benchmark.rp];
+      if(diffPct === undefined || !row60.values[benchmark.rp]) continue;
+
+      const factor = 1 + diffPct / 100;
+      // For a 60-minute duration, depth in mm and intensity in mm/h have the same numeric value.
+      row60.values[benchmark.rp] = {
+        med: benchmark.med * factor,
+        lo: benchmark.lo * factor,
+        hi: benchmark.hi * factor
+      };
+    }
+  }
+
+  function renderPrototypeDownloadNotice({ analysis, scenario }){
+    show("tableCard", true);
+    document.getElementById("tableTitle").textContent = "Prototype download";
+    document.getElementById("tableSubtitle").textContent = analysisProductLabel(analysis);
+    document.getElementById("tableWrap").innerHTML = `
+      <div class="notice">
+        <span class="badge badgeSynthetic">Synthetic prototype</span>
+        <strong>This download demonstrates the expected file structure only.</strong>
+        The values are generated in the browser for the ${scenarioLabel(scenario).toLowerCase()} demo and should not be used for engineering design, insurance pricing, or operational decisions.
+      </div>
+    `;
+  }
+
+  function appendMeteoSwissSmaHourlyValidation(matrixRows, returnPeriods, metric){
+    const stormx60 = matrixRows.find(row => row.minutes === 60);
+    if(!stormx60) return;
+
+    const wanted = new Set(returnPeriods);
+    const rows = METEOSWISS_SMA_HOURLY_IDF.filter(r => wanted.has(r.rp));
+    if(rows.length === 0) return;
+
+    let html = `<div class="notice">
+      <span class="badge badgeSynthetic">StormX demo: synthetic prototype</span>
+      <span class="badge badgeOfficial">MeteoSwiss: official benchmark</span>
+      <strong>Validation check for SMA - Zürich / Fluntern.</strong>
+      This compares the synthetic StormX 60-minute present-climate IDF values with the official MeteoSwiss 1-hour precipitation benchmark. Demo medians are calibrated to stay within ±5% for 2-100 year return levels.
+    </div>`;
+    html += `<table><thead><tr>
+      <th>Return period (yr)</th>
+      <th>StormX demo median (mm/h)</th>
+      <th>MeteoSwiss median (mm/h)</th>
+      <th>Difference (mm/h)</th>
+      <th>Difference (%)</th>
+    </tr></thead><tbody>`;
+    for(const r of rows){
+      const cell = stormx60.values[r.rp];
+      if(!cell) continue;
+      const stormxIntensity = metric === "intensity" ? cell.med : depthToIntensityMmPerH(cell.med, 60);
+      const diff = stormxIntensity - r.med;
+      const diffPct = (diff / r.med) * 100;
+      const diffClass = Math.abs(diffPct) <= 5 ? "validationGood" : "validationWarn";
+      html += `<tr>
+        <td>${r.rp}</td>
+        <td>${fmt(stormxIntensity)}</td>
+        <td>${fmt(r.med)}</td>
+        <td>${fmt(diff)}</td>
+        <td><span class="${diffClass}">${fmt(diffPct)}%</span></td>
+      </tr>`;
+    }
+    html += `</tbody></table>`;
+    html += `<div class="tiny" style="margin-top:8px;">
+      MeteoSwiss source: climate-extremes-precipitation-subdaily, 1-hour sum, all seasons, 1982-2022. StormX values shown here are demo values generated by the static page.
+    </div>`;
+    document.getElementById("tableWrap").innerHTML += html;
+  }
+
+  function renderChangeTable(rows){
+    let html = `<table><thead><tr>
+      <th>Return period (yr)</th><th>Δ% Median</th><th>Δ% P2.5</th><th>Δ% P97.5</th>
+    </tr></thead><tbody>`;
+    for(const r of rows){
+      html += `<tr><td>${r.rp}</td><td>${fmt(r.med)}</td><td>${fmt(r.lo)}</td><td>${fmt(r.hi)}</td></tr>`;
+    }
+    html += `</tbody></table>`;
+    document.getElementById("tableWrap").innerHTML = html;
+  }
+
+  function renderBandChart(rows, yLabel, titleLabel){
+    destroyChart();
+    const ctx = document.getElementById("chart");
+    chart = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: rows.map(r => `${r.rp}`),
+        datasets: [
+          { label: "P97.5", data: rows.map(r => r.hi), borderWidth: 1, pointRadius: 0, fill: "-1" },
+          { label: "P2.5",  data: rows.map(r => r.lo), borderWidth: 1, pointRadius: 0 },
+          { label: titleLabel, data: rows.map(r => r.med), borderWidth: 2, pointRadius: 3, tension: 0.25 }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: { title: { display: true, text: yLabel, color: "#cfd6e6" },
+               ticks: { color: "#cfd6e6" }, grid: { color: "rgba(255,255,255,0.06)" } },
+          x: { title: { display: true, text: "Return period (years)", color: "#cfd6e6" },
+               ticks: { color: "#cfd6e6" }, grid: { color: "rgba(255,255,255,0.06)" } }
+        },
+        plugins: { legend: { labels: { color: "#e8e8e8" } }, tooltip: { enabled: true } }
+      }
+    });
+  }
+
+  function renderMatrixMedianChart(matrixRows, yLabel, returnPeriods){
+    destroyChart();
+    const ctx = document.getElementById("chart");
+    chart = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: returnPeriods.map(rp => `${rp}`),
+        datasets: matrixRows.map(row => ({
+          label: `${row.label} (median)`,
+          data: returnPeriods.map(rp => row.values[rp].med),
+          borderWidth: 2,
+          pointRadius: 2,
+          tension: 0.25
+        }))
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: { title: { display: true, text: yLabel, color: "#cfd6e6" },
+               ticks: { color: "#cfd6e6" }, grid: { color: "rgba(255,255,255,0.06)" } },
+          x: { title: { display: true, text: "Return period (years)", color: "#cfd6e6" },
+               ticks: { color: "#cfd6e6" }, grid: { color: "rgba(255,255,255,0.06)" } }
+        },
+        plugins: { legend: { labels: { color: "#e8e8e8" } }, tooltip: { enabled: true } }
+      }
+    });
+  }
+
+  // ----------------------------
+  // Compute action
+  // ----------------------------
+  document.getElementById("computeBtn").addEventListener("click", async () => {
+    try{
+      const mode = getMode();
+      const metric = getMetric();
+      const analysis = getAnalysis();
+      const effectiveScenario = scenarioFromAnalysis(analysis);
+
+      const wantTable = document.getElementById("showTable").checked;
+      const wantGraph = document.getElementById("showGraph").checked;
+
+      const returnPeriods = getSelectedNumbers(document.getElementById("returnPeriods")).sort((a,b)=>a-b);
+      if(!isRainfallFieldAnalysis(analysis) && returnPeriods.length === 0){
+        setStatus("Please select at least one return period.");
+        return;
+      }
+
+      if(mode === "point" && !activePointLatLng){
+        setStatus("Point mode: please click a point on the map (or a station) first.");
+        return;
+      }
+      if(mode === "area" && !activePolygonLayer){
+        setStatus("Area mode: please draw a polygon first.");
+        return;
+      }
+      if(mode === "point" && analysis === "idf_grid_current"){
+        inferSmaFromSelectedPoint();
+      }
+
+      const polygonGeoJSON = (mode === "area") ? activePolygonLayer.toGeoJSON() : null;
+      const unit = (metric === "intensity") ? "mm/h" : "mm";
+
+      setStatus("Running…");
+
+      // Summary
+      let summaryHtml = "";
+      summaryHtml += `<div><b>Product:</b> ${analysisProductLabel(analysis)}</div>`;
+      summaryHtml += `<div><b>Climate:</b> ${scenarioLabel(effectiveScenario)}</div>`;
+      if(isGriddedIdfAnalysis(analysis)){
+        summaryHtml += `<div><span class="badge badgeSynthetic">StormX demo values: synthetic prototype</span></div>`;
+        if(analysis === "idf_grid_current"){
+          summaryHtml += `<div><span class="badge badgeOfficial">MeteoSwiss benchmark available for SMA, 60 min</span></div>`;
+        }
+      } else {
+        summaryHtml += `<div><span class="badge badgeSynthetic">Prototype download: example file structure only</span></div>`;
+      }
+      if(mode === "point"){
+        summaryHtml += `<div><b>Scale:</b> Point</div>`;
+        if(activeStation){
+          summaryHtml += `<div><b>Station:</b> ${activeStation.code} - ${activeStation.name}</div>`;
+          summaryHtml += `<div><b>Network:</b> ${activeStation.network}</div>`;
+          summaryHtml += `<div><b>Altitude:</b> ${activeStation.altitude_m} m</div>`;
+          summaryHtml += `<div><b>Source:</b> ${activeStation.source}</div>`;
+        }
+        summaryHtml += `<div><b>Location:</b> lat ${activePointLatLng.lat.toFixed(5)}, lon ${activePointLatLng.lng.toFixed(5)}</div>`;
+      } else {
+        const areaKm2 = turf.area(polygonGeoJSON) / 1e6;
+        summaryHtml += `<div><b>Scale:</b> Area</div>`;
+        summaryHtml += `<div><b>Polygon area:</b> ${areaKm2.toFixed(2)} km²</div>`;
+      }
+      summaryHtml += `<div><b>Variable:</b> ${metric === "intensity" ? "Intensity (mm/h)" : "Depth (mm)"}</div>`;
+      if(!isRainfallFieldAnalysis(analysis)){
+        summaryHtml += `<div><b>Return periods:</b> ${returnPeriods.join(", ")} years</div>`;
+      }
+      document.getElementById("summaryText").innerHTML = summaryHtml;
+      show("summaryCard", true);
+
+      show("tableCard", false);
+      show("graphCard", false);
+      destroyChart();
+
+      // Download products
+      if(isRainfallFieldAnalysis(analysis)){
+        await downloadRainfallField2D({ mode, pointLatLng: activePointLatLng, polygonGeoJSON, scenario: effectiveScenario });
+        renderPrototypeDownloadNotice({ analysis, scenario: effectiveScenario });
+        setStatus(`Download started: ${analysisProductLabel(analysis)}. Prototype file structure only; values are synthetic.`);
+        return;
+      }
+      if(isDesignStormAnalysis(analysis)){
+        await vpiDownloadStormEventSet({ mode, pointLatLng: activePointLatLng, polygonGeoJSON, scenario: effectiveScenario, returnPeriods });
+        renderPrototypeDownloadNotice({ analysis, scenario: effectiveScenario });
+        setStatus(`Download started: ${analysisProductLabel(analysis)}. Prototype file structure only; values are synthetic.`);
+        return;
+      }
+
+      if(isGriddedIdfAnalysis(analysis)){
+        const chosenDur = getSelectedNumbers(document.getElementById("durationMulti")).sort((a,b)=>a-b);
+        if(chosenDur.length === 0){
+          setStatus("Gridded IDFs: please select at least one duration.");
+          return;
+        }
+
+        const resp = await queryMatrixDurRP_CI({
+          mode, pointLatLng: activePointLatLng, polygonGeoJSON,
+          durationMinutesList: chosenDur, scenario: effectiveScenario, returnPeriods
+        });
+
+        const matrixRows = resp.matrix.map(m => {
+          const values = {};
+          for(const rp of returnPeriods){
+            const c = m.row[rp];
+            if(metric === "intensity"){
+              values[rp] = {
+                med: depthToIntensityMmPerH(c.med, m.minutes),
+                lo:  depthToIntensityMmPerH(c.lo,  m.minutes),
+                hi:  depthToIntensityMmPerH(c.hi,  m.minutes)
+              };
+            } else {
+              values[rp] = { med: c.med, lo: c.lo, hi: c.hi };
+            }
+          }
+          return { minutes: m.minutes, label: durationLabel(m.minutes), values };
+        });
+        calibrateSmaHourlyStormxDemo(matrixRows, { analysis, station: activeStation });
+
+        show("tableCard", wantTable);
+        document.getElementById("tableTitle").textContent = analysisProductLabel(analysis);
+        document.getElementById("tableSubtitle").textContent =
+          `${scenarioLabel(effectiveScenario)} • Synthetic StormX demo values • Each cell shows median + P2.5–P97.5 • ${unit}`;
+        if(wantTable) {
+          renderMatrixTable(matrixRows, unit, returnPeriods);
+          if(analysis === "idf_grid_current" && activeStation && activeStation.code === "SMA" && chosenDur.includes(60)){
+            appendMeteoSwissSmaHourlyValidation(matrixRows, returnPeriods, metric);
+          }
+        }
+
+        show("graphCard", wantGraph);
+        document.getElementById("graphTitle").textContent = "Gridded IDF curves (median only)";
+        document.getElementById("graphSubtitle").textContent =
+          `Synthetic StormX demo values. One curve per duration (median). Full uncertainty values are available in the table.`;
+        if(wantGraph) renderMatrixMedianChart(matrixRows, unit, returnPeriods);
+
+      }
+
+      setStatus("Done.");
+    } catch(err){
+      setStatus("Error: " + (err && err.message ? err.message : String(err)));
+    }
+  });
+
+  // ----------------------------
+  // UI events
+  // ----------------------------
+  document.getElementById("analysisType").addEventListener("change", () => { resetOutputs(); refreshUI(); });
+
+  document.getElementById("scaleMode").addEventListener("change", () => {
+    resetOutputs(); refreshUI();
+    setStatus(getMode() === "point"
+      ? "Point mode: click a station or click on the map."
+      : "Area mode: draw a polygon (left toolbar).");
+  });
+
+  document.getElementById("showStations").addEventListener("change", (e) => {
+    renderMeteoSwissZhStations(e.target.checked);
+  });
+
+  ["metric","scenario","durationSingle","durationMulti","returnPeriods","showTable","showGraph"].forEach(id => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.addEventListener("change", () => { resetOutputs(); refreshUI(); });
+  });
+
+  // Init
+  initSidebarResizer();
+  refreshUI();
+  renderMeteoSwissZhStations(true);
+</script>
+</body>
+</html>
